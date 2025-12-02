@@ -1,0 +1,42 @@
+{
+  "name": "@redoc/cli",
+  "version": "1.0.0",
+  "description": "CLI tool to capture developer brain dumps via git hooks and AI-generated questions",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "redoc": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "keywords": [
+    "documentation",
+    "git",
+    "ai",
+    "developer-tools",
+    "brain-dump"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^11.1.0",
+    "inquirer": "^9.2.12",
+    "chalk": "^5.3.0",
+    "ora": "^7.0.1",
+    "simple-git": "^3.21.0",
+    "groq-sdk": "^0.3.0",
+    "marked": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@types/inquirer": "^9.0.7",
+    "typescript": "^5.3.3",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.11",
+    "ts-jest": "^29.1.1"
+  }
+}
