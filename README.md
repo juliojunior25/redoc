@@ -10,18 +10,30 @@ O ReDoc intercepta seus commits e gera perguntas contextuais usando IA (Groq/LLa
 
 ## 📦 Instalação
 
+**Este projeto requer Bun.** [Instale o Bun](https://bun.sh) primeiro:
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+### Instalação Global (via npm - em breve)
+
 ```bash
 npm install -g @redoc/cli
 ```
 
-Ou para desenvolvimento local:
+### Desenvolvimento Local
 
 ```bash
+# Clonar e configurar
 git clone <repo>
 cd redoc
-npm install
-npm run build
-npm link
+bun install
+bun run build
+bun link
+
+# Testar
+redoc --version
 ```
 
 ## 🚀 Quick Start
@@ -140,23 +152,54 @@ Link útil: https://jwt.io/introduction
 
 ## 🛠️ Desenvolvimento
 
+**Este projeto usa Bun exclusivamente.** Não é compatível com Node.js/npm/yarn para desenvolvimento.
+
+### Pré-requisito
+
+```bash
+# Instalar Bun
+curl -fsSL https://bun.sh/install | bash
+
+# Adicionar ao PATH (já é feito automaticamente)
+export PATH="$HOME/.bun/bin:$PATH"
+
+# Verificar
+bun --version
+```
+
 ### Build
 
 ```bash
-npm run build
+# Build para produção (bundle único de ~1.6MB)
+bun run build
 ```
 
-### Watch Mode
+> **Nota:** Build super rápido (~1s)! Usa o bundler nativo do Bun para criar um único arquivo executável.
+
+### Watch Mode (Desenvolvimento)
 
 ```bash
-npm run dev
+# Desenvolvimento com hot reload (executa TypeScript diretamente)
+bun run dev
+```
+
+> **Dica:** Bun executa TypeScript nativamente, sem compilação! Hot reload instantâneo.
+
+### Testes
+
+```bash
+# Rodar todos os testes
+bun test
+
+# Watch mode
+bun test --watch
 ```
 
 ### Testar Localmente
 
 ```bash
 # Build e link
-npm run build && npm link
+bun run build && bun link
 
 # Criar projeto teste
 mkdir ~/test-redoc && cd ~/test-redoc

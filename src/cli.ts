@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { Command } from 'commander';
 import chalk from 'chalk';
@@ -9,13 +9,22 @@ import { statusCommand } from './commands/status.js';
 import { configCommand } from './commands/config.js';
 import { doctorCommand } from './commands/doctor.js';
 import { fixHooksCommand } from './commands/fix-hooks.js';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// Get version from package.json
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJson = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
+const version = packageJson.version;
 
 const program = new Command();
 
 program
   .name('redoc')
   .description('Capture developer brain dumps via git hooks and AI-generated questions')
-  .version('1.0.0');
+  .version(version);
 
 // Init command
 program

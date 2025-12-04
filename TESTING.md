@@ -8,22 +8,37 @@ O ReDoc foi desenvolvido com sucesso. Agora vamos testar em um repositório real
 
 ## 📋 Pré-requisitos
 
-1. ✅ Build feito (`yarn build`)
-2. ✅ CLI funcionando (`node dist/cli.js --version`)
-3. ⏳ Link global (ver instruções abaixo)
+1. ✅ Bun instalado (`bun --version`)
+2. ✅ Build feito (`bun run build`)
+3. ✅ CLI funcionando (`bun dist/cli.js --version`)
+4. ⏳ Link global (ver instruções abaixo)
 
 ---
 
-## 🔗 Opção 1: Instalar Globalmente (Recomendado)
+## 🔗 Opção 1: Instalar Globalmente com Bun (Recomendado)
 
 ```bash
 # No diretório do redoc
-sudo ln -sf $(pwd)/dist/cli.js /usr/local/bin/redoc
-chmod +x dist/cli.js
+# Fazer o build
+bun run build
 
-# Testar
+# Instalar globalmente via bun link
+bun link
+
+# Testar (certifique-se que ~/.bun/bin está no PATH)
 redoc --version
 redoc --help
+```
+
+**Verificar se Bun está no PATH:**
+
+```bash
+# Ver se bun está disponível
+which bun
+
+# Se não estiver, adicione ao PATH
+echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 ---
@@ -32,13 +47,31 @@ redoc --help
 
 ```bash
 # Criar alias no seu shell (~/.zshrc ou ~/.bashrc)
-alias redoc="node /Users/julio.junior/developer/redoc/dist/cli.js"
+alias redoc="$(pwd)/dist/cli.js"
 
 # Recarregar shell
 source ~/.zshrc  # ou source ~/.bashrc
 
 # Testar
 redoc --version
+```
+
+> **Nota:** O CLI usa `#!/usr/bin/env bun` no shebang, então o Bun precisa estar no PATH.
+
+---
+
+## 📦 Instalação do Bun (se necessário)
+
+```bash
+# Instalar Bun
+curl -fsSL https://bun.sh/install | bash
+
+# Adicionar ao PATH (se não foi feito automaticamente)
+echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# Verificar instalação
+bun --version
 ```
 
 ---
