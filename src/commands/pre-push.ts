@@ -8,6 +8,25 @@ import { DocumentGenerator } from '../utils/document.js';
 import { BrainDumpAnswers } from '../types.js';
 
 /**
+ * Normalize text to handle special characters and encoding issues
+ */
+function normalizeText(text: string): string {
+  if (!text) return '';
+
+  return text
+    // Normalize unicode (NFD -> NFC for proper accents)
+    .normalize('NFC')
+    // Remove null bytes
+    .replace(/\0/g, '')
+    // Normalize line endings to LF
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    // Remove control characters except newlines and tabs
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .trim();
+}
+
+/**
  * Pre-push hook - interactive brain dump session
  */
 export async function prePushCommand(): Promise<void> {
@@ -100,20 +119,39 @@ export async function prePushCommand(): Promise<void> {
         console.log(chalk.cyan(`💡 ${question.context}\n`));
       }
 
-      const { answer } = await inquirer.prompt([{
-        type: 'editor',
-        name: 'answer',
-        message: question.question,
-        default: '',
-        validate: (input) => {
-          if (!input || input.trim().length === 0) {
-            return 'Please provide an answer (even if brief)';
+      try {
+        const { answer } = await inquirer.prompt([{
+          type: 'editor',
+          name: 'answer',
+          message: question.question,
+          default: '',
+          postprocess: (input: string) => normalizeText(input),
+          validate: (input) => {
+            if (!input || input.trim().length === 0) {
+              return 'Please provide an answer (even if brief)';
+            }
+            return true;
           }
-          return true;
-        }
-      }]);
+        }]);
 
-      rawAnswers[question.id] = answer.trim();
+        rawAnswers[question.id] = normalizeText(answer);
+      } catch (editorError) {
+        // Fallback to simple input if editor fails
+        console.log(chalk.yellow('\n⚠ Editor failed, using simple input instead'));
+        const { answer } = await inquirer.prompt([{
+          type: 'input',
+          name: 'answer',
+          message: `${question.question} (single line):`,
+          validate: (input) => {
+            if (!input || input.trim().length === 0) {
+              return 'Please provide an answer (even if brief)';
+            }
+            return true;
+          }
+        }]);
+
+        rawAnswers[question.id] = normalizeText(answer);
+      }
     }
 
     // Refine answers with AI

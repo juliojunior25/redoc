@@ -118,5 +118,124 @@ describe('ConfigManager', () => {
       expect(config.groqApiKey).toBe('gsk_test123');
       expect(mockWriteFile).toHaveBeenCalled();
     });
+
+    it('should create config without groqApiKey', async () => {
+      mockWriteFile.mockResolvedValue(undefined);
+
+      const config = await ConfigManager.createInitialConfig(
+        '/test',
+        'my-project',
+        '/test/redocs'
+      );
+
+      expect(config.projectName).toBe('my-project');
+      expect(config.groqApiKey).toBeUndefined();
+    });
+  });
+
+  describe('getGroqApiKey', () => {
+    it('should return groq api key when configured', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify(mockConfig));
+
+      const configManager = new ConfigManager('/test');
+      const apiKey = await configManager.getGroqApiKey();
+
+      expect(apiKey).toBe('gsk_test123');
+    });
+
+    it('should throw error when groq api key not configured', async () => {
+      const configWithoutKey = { ...mockConfig, groqApiKey: undefined };
+      mockReadFile.mockResolvedValue(JSON.stringify(configWithoutKey));
+
+      const configManager = new ConfigManager('/test');
+
+      await expect(configManager.getGroqApiKey()).rejects.toThrow('Groq API key not configured');
+    });
+  });
+
+  describe('setGroqApiKey', () => {
+    it('should set groq api key', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify(mockConfig));
+      mockWriteFile.mockResolvedValue(undefined);
+
+      const configManager = new ConfigManager('/test');
+      await configManager.setGroqApiKey('gsk_new_key');
+
+      expect(mockWriteFile).toHaveBeenCalled();
+      const savedConfig = JSON.parse(mockWriteFile.mock.calls[0][1]);
+      expect(savedConfig.groqApiKey).toBe('gsk_new_key');
+    });
+  });
+
+  describe('getSubmodulePath', () => {
+    it('should return submodule path', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify(mockConfig));
+
+      const configManager = new ConfigManager('/test');
+      const path = await configManager.getSubmodulePath();
+
+      expect(path).toBe('/test/redocs');
+    });
+  });
+
+  describe('getProjectName', () => {
+    it('should return project name', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify(mockConfig));
+
+      const configManager = new ConfigManager('/test');
+      const name = await configManager.getProjectName();
+
+      expect(name).toBe('test-project');
+    });
+  });
+
+  describe('delete', () => {
+    const mockUnlink = mock();
+
+    beforeEach(() => {
+      mockUnlink.mockClear();
+    });
+
+    it('should delete configuration file', async () => {
+      mock.module('fs/promises', () => ({
+        readFile: mockReadFile,
+        writeFile: mockWriteFile,
+        access: mockAccess,
+        unlink: mockUnlink,
+      }));
+      mockUnlink.mockResolvedValue(undefined);
+
+      const configManager = new ConfigManager('/test');
+      await configManager.delete();
+
+      expect(mockUnlink).toHaveBeenCalled();
+    });
+
+    it('should not throw if config does not exist', async () => {
+      mock.module('fs/promises', () => ({
+        readFile: mockReadFile,
+        writeFile: mockWriteFile,
+        access: mockAccess,
+        unlink: mockUnlink,
+      }));
+      mockUnlink.mockRejectedValue(new Error('File not found'));
+
+      const configManager = new ConfigManager('/test');
+
+      // Should complete without throwing
+      await configManager.delete();
+      expect(true).toBe(true);
+    });
+  });
+
+  describe('getConfig', () => {
+    it('should return full configuration', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify(mockConfig));
+
+      const configManager = new ConfigManager('/test');
+      const config = await configManager.getConfig();
+
+      expect(config).toEqual(mockConfig);
+    });
   });
 });

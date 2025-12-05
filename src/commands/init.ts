@@ -53,36 +53,59 @@ export async function initCommand(): Promise<void> {
     validate: (input) => input.trim().length > 0 || 'Project name is required'
   }]);
 
-  // Ask about submodule
-  const { useExistingSubmodule } = await inquirer.prompt([{
-    type: 'confirm',
-    name: 'useExistingSubmodule',
-    message: 'Do you have an existing ReDoc submodule/repository?',
-    default: false
+  // Ask about storage type
+  const { storageType } = await inquirer.prompt([{
+    type: 'list',
+    name: 'storageType',
+    message: 'Where do you want to store documentation?',
+    choices: [
+      { name: 'Local folder (inside this project)', value: 'local' },
+      { name: 'Git submodule (separate repository)', value: 'submodule' },
+      { name: 'Use existing folder/submodule', value: 'existing' }
+    ],
+    default: 'local'
   }]);
 
   let submodulePath: string;
 
-  if (useExistingSubmodule) {
+  if (storageType === 'local') {
+    const { folderName } = await inquirer.prompt([{
+      type: 'input',
+      name: 'folderName',
+      message: 'Documentation folder name:',
+      default: 'docs',
+      validate: (input) => input.trim().length > 0 || 'Folder name is required'
+    }]);
+
+    submodulePath = path.join(projectRoot, folderName);
+
+    // Create the docs directory
+    const docsDir = path.join(submodulePath, 'docs');
+    await fs.mkdir(docsDir, { recursive: true });
+    console.log(chalk.green(`  ✓ Created ${folderName}/docs/`));
+
+  } else if (storageType === 'existing') {
     const { existingPath } = await inquirer.prompt([{
       type: 'input',
       name: 'existingPath',
-      message: 'Path to existing submodule (relative to project root):',
-      default: 'redocs',
+      message: 'Path to existing folder/submodule (relative to project root):',
+      default: 'docs',
       validate: (input) => input.trim().length > 0 || 'Path is required'
     }]);
 
     submodulePath = path.join(projectRoot, existingPath);
 
-    // Ensure docs directory exists inside the submodule
+    // Ensure docs directory exists
     const docsDir = path.join(submodulePath, 'docs');
     try {
       await fs.mkdir(docsDir, { recursive: true });
-      console.log(chalk.gray(`   Created docs directory at ${docsDir}`));
-    } catch (error) {
-      // Directory might already exist, that's fine
+    } catch {
+      // Directory might already exist
     }
+    console.log(chalk.green(`  ✓ Using ${existingPath}/`));
+
   } else {
+    // submodule
     const { newSubmoduleName } = await inquirer.prompt([{
       type: 'input',
       name: 'newSubmoduleName',
