@@ -134,6 +134,9 @@ export async function prePushCommand(): Promise<void> {
     const docSpinner = ora('Generating documentation...').start();
     const documentGenerator = new DocumentGenerator();
 
+    // Load custom template if configured
+    await documentGenerator.loadTemplate(config);
+
     const document = await documentGenerator.generate(
       branch,
       versions,
@@ -147,19 +150,10 @@ export async function prePushCommand(): Promise<void> {
 
     docSpinner.succeed('Documentation generated');
 
-    // Commit to submodule
-    const commitSpinner = ora('Committing to submodule...').start();
-    await gitManager.commitSubmodule(
-      config.submodulePath,
-      `Brain dump: ${branch} (${versions.length} commits)`
-    );
-    commitSpinner.succeed('Committed to submodule');
-
     // Success
     console.log(chalk.green.bold('\n✅ Brain dump captured!\n'));
     console.log(chalk.blue('Document saved to:'));
     console.log(chalk.gray(`  ${filePath}\n`));
-    console.log(chalk.gray('Review the document and push your changes.\n'));
 
   } catch (error) {
     console.log(chalk.red('\n❌ Error during brain dump:\n'));

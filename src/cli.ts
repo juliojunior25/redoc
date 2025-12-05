@@ -9,6 +9,7 @@ import { statusCommand } from './commands/status.js';
 import { configCommand } from './commands/config.js';
 import { doctorCommand } from './commands/doctor.js';
 import { fixHooksCommand } from './commands/fix-hooks.js';
+import { templateCommand } from './commands/template.js';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -102,6 +103,19 @@ program
     }
   });
 
+// Template command
+program
+  .command('template')
+  .description('Edit the documentation template')
+  .action(async () => {
+    try {
+      await templateCommand();
+    } catch (error) {
+      console.error(chalk.red('Error:'), error);
+      process.exit(1);
+    }
+  });
+
 // Help text
 program.on('--help', () => {
   console.log('');
@@ -112,6 +126,7 @@ program.on('--help', () => {
   console.log('  $ redoc config show                   Show configuration');
   console.log('  $ redoc config set groqApiKey <key>   Set Groq API key');
   console.log('  $ redoc pre-push                      Manual brain dump');
+  console.log('  $ redoc template                      Edit documentation template');
   console.log('  $ redoc doctor                        Diagnose hook issues');
   console.log('  $ redoc fix-hooks                     Reinstall hooks');
   console.log('');

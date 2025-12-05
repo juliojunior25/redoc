@@ -1,12 +1,31 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { CommitVersion, FinalDocument, BrainDumpAnswers } from '../types.js';
+import { CommitVersion, FinalDocument, BrainDumpAnswers, RedocConfig } from '../types.js';
 import { FEATURE_REPORT_TEMPLATE } from '../templates/feature-report.js';
 
 /**
  * Generates final documentation from brain dump answers
  */
 export class DocumentGenerator {
+  private customTemplate: string | null = null;
+  private projectName: string = '';
+
+  /**
+   * Load custom template if configured
+   */
+  async loadTemplate(config: RedocConfig): Promise<void> {
+    this.projectName = config.projectName;
+
+    if (config.templatePath) {
+      try {
+        this.customTemplate = await fs.readFile(config.templatePath, 'utf-8');
+      } catch {
+        // Template file not found, use default
+        this.customTemplate = null;
+      }
+    }
+  }
+
   /**
    * Generate final document from answers
    */
@@ -16,7 +35,9 @@ export class DocumentGenerator {
     answers: BrainDumpAnswers
   ): Promise<FinalDocument> {
     const title = this.generateTitle(branch, versions);
-    const content = this.formatDocument(branch, versions, answers);
+    const content = this.customTemplate
+      ? this.formatWithCustomTemplate(branch, versions, answers)
+      : this.formatDocument(branch, versions, answers);
 
     return {
       title,
@@ -62,7 +83,106 @@ export class DocumentGenerator {
   }
 
   /**
-   * Format document using template
+   * Format document using custom template
+   */
+  private formatWithCustomTemplate(
+    branch: string,
+    versions: CommitVersion[],
+    answers: BrainDumpAnswers
+  ): string {
+    if (!this.customTemplate) {
+      return this.formatDocument(branch, versions, answers);
+    }
+
+    let content = this.customTemplate;
+
+    // Build brain dump content
+    const brainDump = this.formatBrainDump(answers);
+
+    // Build commits summary
+    const commitsSummary = this.formatCommitsSummary(versions);
+
+    // Build changes detail
+    const changesDetail = this.formatChangesDetail(versions);
+
+    // Replace template variables
+    content = content.replace(/{PROJECT_NAME}/g, this.projectName);
+    content = content.replace(/{BRANCH_NAME}/g, branch);
+    content = content.replace(/{DATE}/g, new Date().toLocaleDateString());
+    content = content.replace(/{COMMITS_SUMMARY}/g, commitsSummary);
+    content = content.replace(/{BRAIN_DUMP}/g, brainDump);
+    content = content.replace(/{CHANGES_DETAIL}/g, changesDetail);
+
+    return content;
+  }
+
+  /**
+   * Format brain dump answers for custom template
+   */
+  private formatBrainDump(answers: BrainDumpAnswers): string {
+    const sections: string[] = [];
+
+    if (answers.what_and_why && answers.what_and_why.trim()) {
+      sections.push(`### What & Why\n\n${answers.what_and_why.trim()}`);
+    }
+
+    if (answers.key_decisions && answers.key_decisions.trim()) {
+      sections.push(`### Key Decisions\n\n${answers.key_decisions.trim()}`);
+    }
+
+    if (answers.gotchas && answers.gotchas.trim()) {
+      sections.push(`### Gotchas & Warnings\n\n${answers.gotchas.trim()}`);
+    }
+
+    if (answers.additional_context && answers.additional_context.trim()) {
+      sections.push(`### Additional Context\n\n${answers.additional_context.trim()}`);
+    }
+
+    return sections.length > 0 ? sections.join('\n\n') : '_No brain dump provided._';
+  }
+
+  /**
+   * Format commits summary for custom template
+   */
+  private formatCommitsSummary(versions: CommitVersion[]): string {
+    if (versions.length === 0) {
+      return '_No commits._';
+    }
+
+    return versions.map(v => {
+      const shortHash = v.commit.substring(0, 7);
+      const date = new Date(v.timestamp).toLocaleDateString();
+      return `- **${shortHash}** - ${v.message} _(${date})_`;
+    }).join('\n');
+  }
+
+  /**
+   * Format detailed changes for custom template
+   */
+  private formatChangesDetail(versions: CommitVersion[]): string {
+    const allFiles = new Set<string>();
+
+    versions.forEach(v => {
+      v.files.forEach(f => allFiles.add(f));
+    });
+
+    const filesList = Array.from(allFiles).sort();
+
+    if (filesList.length === 0) {
+      return '_No files modified._';
+    }
+
+    const lines = [
+      `**${filesList.length} files modified:**`,
+      '',
+      ...filesList.map(f => `- \`${f}\``)
+    ];
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Format document using default template
    */
   private formatDocument(
     branch: string,

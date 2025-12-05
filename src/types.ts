@@ -9,6 +9,7 @@ export interface RedocConfig {
   aiProvider?: 'groq' | 'openai';
   openaiApiKey?: string;
   editor?: string;
+  templatePath?: string;  // Path to custom template file (.redoc-template.md)
 }
 
 /**

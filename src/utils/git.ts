@@ -370,9 +370,6 @@ ${version.diffs}
     // Ensure hooks directory exists
     await fs.mkdir(targetHooksDir, { recursive: true });
 
-    // Get the path to redoc executable
-    const redocPath = await this.findRedocPath();
-
     // Ensure log directory exists
     const { execSync } = await import('child_process');
     try {
@@ -382,25 +379,59 @@ ${version.diffs}
     }
 
     // ReDoc snippet for post-commit (runs in background)
+    // Uses robust path detection to find redoc in multiple locations
     const redocPostCommitSnippet = `
 # ========== ReDoc post-commit hook ==========
-# Runs in background completely detached to survive after hook exits
-(
-  export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:\$PATH"
-  REDOC_CMD="${redocPath || 'redoc'}"
-  trap '' HUP INT TERM
-  sleep 0.5
-  nohup "\$REDOC_CMD" post-commit >> "\${HOME}/.redoc/post-commit.log" 2>&1 &
-) </dev/null >/dev/null 2>&1 &
+# Find redoc in common locations
+find_redoc() {
+  for dir in "\$HOME/.bun/bin" "/opt/homebrew/bin" "/usr/local/bin" "\$HOME/.local/bin" "/usr/bin"; do
+    if [ -x "\$dir/redoc" ]; then
+      echo "\$dir/redoc"
+      return 0
+    fi
+  done
+  return 1
+}
+
+REDOC_CMD=\$(find_redoc)
+if [ -z "\$REDOC_CMD" ]; then
+  echo "[$(date)] ReDoc: comando nao encontrado" >> "\$HOME/.redoc/error.log"
+  exit 0
+fi
+
+# Create log directory if needed
+mkdir -p "\$HOME/.redoc"
+
+# Run in background detached from terminal
+(nohup "\$REDOC_CMD" post-commit >> "\$HOME/.redoc/post-commit.log" 2>&1 &) &
 # ========== End ReDoc ==========
 `;
 
-    // ReDoc snippet for pre-push (runs synchronously)
+    // ReDoc snippet for pre-push (runs synchronously - needs user interaction)
     const redocPrePushSnippet = `
 # ========== ReDoc pre-push hook ==========
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:\$PATH"
-REDOC_CMD="${redocPath || 'redoc'}"
-"\$REDOC_CMD" pre-push >> "\${HOME}/.redoc/pre-push.log" 2>&1 || true
+# Find redoc in common locations
+find_redoc() {
+  for dir in "\$HOME/.bun/bin" "/opt/homebrew/bin" "/usr/local/bin" "\$HOME/.local/bin" "/usr/bin"; do
+    if [ -x "\$dir/redoc" ]; then
+      echo "\$dir/redoc"
+      return 0
+    fi
+  done
+  return 1
+}
+
+REDOC_CMD=\$(find_redoc)
+if [ -z "\$REDOC_CMD" ]; then
+  echo "ReDoc: comando nao encontrado. Execute 'redoc doctor' para diagnosticar."
+  exit 0
+fi
+
+# Create log directory if needed
+mkdir -p "\$HOME/.redoc"
+
+# Run pre-push (needs terminal for user input)
+"\$REDOC_CMD" pre-push
 # ========== End ReDoc ==========
 `;
 
@@ -476,19 +507,6 @@ ${snippet}`;
   }
 
   /**
-   * Find the full path to redoc executable
-   */
-  private async findRedocPath(): Promise<string | null> {
-    try {
-      const { execSync } = await import('child_process');
-      const result = execSync('which redoc', { encoding: 'utf-8' }).trim();
-      return result || null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
    * Configure git to use Husky hooks
    */
   async configureHusky(): Promise<void> {
@@ -503,7 +521,20 @@ ${snippet}`;
     message: string
   ): Promise<void> {
     const submoduleGit = simpleGit(submodulePath);
+
+    // Check if submodule is a valid git repository
+    const isRepo = await submoduleGit.checkIsRepo();
+    if (!isRepo) {
+      // Initialize as git repository if not already
+      await submoduleGit.init();
+    }
+
     await submoduleGit.add('.');
-    await submoduleGit.commit(message);
+
+    // Check if there are changes to commit
+    const status = await submoduleGit.status();
+    if (status.staged.length > 0 || status.files.length > 0) {
+      await submoduleGit.commit(message);
+    }
   }
 }
