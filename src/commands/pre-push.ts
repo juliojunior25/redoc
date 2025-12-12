@@ -87,7 +87,9 @@ export async function prePushCommand(): Promise<void> {
     if (config.groqApiKey) {
       const apiSpinner = ora('Generating contextual questions...').start();
       try {
-        const groqManager = new GroqManager(config.groqApiKey);
+        const groqManager = new GroqManager(config.groqApiKey, {
+          redactSecrets: config.redactSecrets !== false
+        });
         questions = await groqManager.generateQuestions(versions);
         apiSpinner.succeed('Questions generated');
         usedAI = true;
@@ -160,7 +162,9 @@ export async function prePushCommand(): Promise<void> {
     if (config.groqApiKey) {
       const refineSpinner = ora('Refining answers with AI...').start();
       try {
-        const groqManager = new GroqManager(config.groqApiKey);
+        const groqManager = new GroqManager(config.groqApiKey, {
+          redactSecrets: config.redactSecrets !== false
+        });
         answers = await groqManager.refineAnswers(versions, rawAnswers) as BrainDumpAnswers;
         refineSpinner.succeed('Answers refined by AI');
       } catch (error) {

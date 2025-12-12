@@ -111,7 +111,8 @@ export class ConfigManager {
       projectName,
       submodulePath,
       groqApiKey,
-      aiProvider: 'groq'
+      aiProvider: 'groq',
+      redactSecrets: true
     };
 
     const configPath = path.join(projectRoot, '.redocrc.json');

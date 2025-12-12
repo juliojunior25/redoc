@@ -96,24 +96,65 @@ export class DocumentGenerator {
 
     let content = this.customTemplate;
 
+    const title = this.generateTitle(branch, versions);
+    const createdAt = new Date().toLocaleDateString();
+    const generatedAt = new Date().toLocaleString();
+    const commitCount = versions.length.toString();
+
     // Build brain dump content
     const brainDump = this.formatBrainDump(answers);
 
     // Build commits summary
     const commitsSummary = this.formatCommitsSummary(versions);
 
+    const commitsList = this.formatCommitsSummary(versions);
+
     // Build changes detail
     const changesDetail = this.formatChangesDetail(versions);
+
+    const filesList = this.formatFilesList(versions);
 
     // Replace template variables
     content = content.replace(/{PROJECT_NAME}/g, this.projectName);
     content = content.replace(/{BRANCH_NAME}/g, branch);
-    content = content.replace(/{DATE}/g, new Date().toLocaleDateString());
+    content = content.replace(/{DATE}/g, createdAt);
     content = content.replace(/{COMMITS_SUMMARY}/g, commitsSummary);
     content = content.replace(/{BRAIN_DUMP}/g, brainDump);
     content = content.replace(/{CHANGES_DETAIL}/g, changesDetail);
 
+    // New placeholders (optional)
+    content = content.replace(/{TITLE}/g, title);
+    content = content.replace(/{COMMIT_COUNT}/g, commitCount);
+    content = content.replace(/{CREATED_AT}/g, createdAt);
+    content = content.replace(/{GENERATED_AT}/g, generatedAt);
+    content = content.replace(/{COMMITS_LIST}/g, commitsList);
+    content = content.replace(/{FILES_LIST}/g, filesList);
+
+    content = content.replace(/{WHAT_AND_WHY}/g, this.formatAnswer(answers.what_and_why));
+    content = content.replace(/{KEY_DECISIONS}/g, this.formatAnswer(answers.key_decisions));
+    content = content.replace(/{GOTCHAS}/g, this.formatAnswer(answers.gotchas));
+    content = content.replace(/{ADDITIONAL_CONTEXT}/g, this.formatAnswer(answers.additional_context));
+
     return content;
+  }
+
+  /**
+   * Format files list for custom template
+   */
+  private formatFilesList(versions: CommitVersion[]): string {
+    const allFiles = new Set<string>();
+
+    versions.forEach(v => {
+      v.files.forEach(f => allFiles.add(f));
+    });
+
+    const filesList = Array.from(allFiles).sort();
+
+    if (filesList.length === 0) {
+      return '_No files modified._';
+    }
+
+    return filesList.map(f => `- \`${f}\``).join('\n');
   }
 
   /**

@@ -10,6 +10,7 @@ export interface RedocConfig {
   openaiApiKey?: string;
   editor?: string;
   templatePath?: string;  // Path to custom template file (.redoc-template.md)
+  redactSecrets?: boolean; // Redact secrets from diffs before sending to AI (default: true)
 }
 
 /**

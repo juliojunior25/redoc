@@ -430,8 +430,19 @@ fi
 # Create log directory if needed
 mkdir -p "\$HOME/.redoc"
 
-# Run pre-push (needs terminal for user input)
-"\$REDOC_CMD" pre-push
+# IMPORTANT: git pre-push provides refs list on stdin.
+# Drain stdin so it doesn't get consumed by interactive prompts.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  :
+done
+
+# Run pre-push interactively using the controlling terminal.
+# If no TTY is available (e.g., CI), skip to avoid breaking pushes.
+if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+  "\$REDOC_CMD" pre-push < /dev/tty > /dev/tty 2> /dev/tty
+else
+  echo "[$(date)] ReDoc: sem TTY; pulando brain dump interativo" >> "\$HOME/.redoc/pre-push.log"
+fi
 # ========== End ReDoc ==========
 `;
 

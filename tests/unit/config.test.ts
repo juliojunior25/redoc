@@ -17,7 +17,8 @@ describe('ConfigManager', () => {
     projectName: 'test-project',
     submodulePath: '/test/redocs',
     groqApiKey: 'gsk_test123',
-    aiProvider: 'groq' as const
+    aiProvider: 'groq' as const,
+    redactSecrets: true
   };
 
   beforeEach(() => {
@@ -116,6 +117,7 @@ describe('ConfigManager', () => {
       expect(config.projectName).toBe('my-project');
       expect(config.submodulePath).toBe('/test/redocs');
       expect(config.groqApiKey).toBe('gsk_test123');
+      expect(config.redactSecrets).toBe(true);
       expect(mockWriteFile).toHaveBeenCalled();
     });
 
@@ -130,6 +132,7 @@ describe('ConfigManager', () => {
 
       expect(config.projectName).toBe('my-project');
       expect(config.groqApiKey).toBeUndefined();
+      expect(config.redactSecrets).toBe(true);
     });
   });
 

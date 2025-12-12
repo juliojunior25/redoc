@@ -1,15 +1,22 @@
 import Groq from 'groq-sdk';
 import { CommitVersion, GroqQuestion } from '../types.js';
 import { DEFAULT_QUESTIONS } from '../templates/feature-report.js';
+import { sanitizeForAI } from './sanitize.js';
+
+export interface GroqManagerOptions {
+  redactSecrets?: boolean;
+}
 
 /**
  * Manages Groq AI interactions for generating questions
  */
 export class GroqManager {
   private client: Groq;
+  private redactSecrets: boolean;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, options: GroqManagerOptions = {}) {
     this.client = new Groq({ apiKey });
+    this.redactSecrets = options.redactSecrets !== false;
   }
 
   /**
@@ -116,14 +123,18 @@ Retorne um objeto JSON com a estrutura especificada.`;
         ? v.diffs.substring(0, 2000) + '\n... (truncated)'
         : v.diffs;
 
+      const safeMessage = this.redactSecrets ? sanitizeForAI(v.message).text : v.message;
+      const safeFiles = this.redactSecrets ? sanitizeForAI(v.files.join(', ')).text : v.files.join(', ');
+      const safeDiff = this.redactSecrets ? sanitizeForAI(truncatedDiff).text : truncatedDiff;
+
       return `## Version ${v.version}
 **Commit:** ${v.commit}
-**Message:** ${v.message}
-**Files:** ${v.files.join(', ')}
+**Message:** ${safeMessage}
+**Files:** ${safeFiles}
 
 **Diffs:**
 \`\`\`diff
-${truncatedDiff}
+${safeDiff}
 \`\`\`
 `;
     }).join('\n---\n');
@@ -150,6 +161,12 @@ ${truncatedDiff}
   ): Promise<Record<string, string>> {
     const context = this.prepareContext(versions);
 
+    const safeRawAnswers = this.redactSecrets
+      ? Object.fromEntries(
+          Object.entries(rawAnswers).map(([key, value]) => [key, sanitizeForAI(value ?? '').text])
+        )
+      : rawAnswers;
+
     const systemPrompt = `Você é um assistente técnico que aprimora documentação de código.
 
 Sua tarefa é pegar respostas brutas/concisas de desenvolvedores e transformá-las em documentação profissional, mas mantendo o tom informal.
@@ -171,16 +188,16 @@ ${context}
 Aprimore estas respostas e retorne em formato JSON:
 
 **O Que e Por Quê:**
-${rawAnswers.what_and_why}
+${safeRawAnswers.what_and_why}
 
 **Decisões Importantes:**
-${rawAnswers.key_decisions}
+${safeRawAnswers.key_decisions}
 
 **Pontos de Atenção:**
-${rawAnswers.gotchas}
+${safeRawAnswers.gotchas}
 
 **Contexto Adicional:**
-${rawAnswers.additional_context}
+${safeRawAnswers.additional_context}
 
 Retorne um objeto JSON com a seguinte estrutura:
 {

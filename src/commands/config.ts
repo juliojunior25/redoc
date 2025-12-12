@@ -135,6 +135,7 @@ async function showConfig(configManager: ConfigManager): Promise<void> {
     config.groqApiKey ? `${config.groqApiKey.substring(0, 10)}...` : 'Not set'
   ));
   console.log(chalk.gray('Editor:          ') + chalk.white(config.editor || 'System default'));
+  console.log(chalk.gray('Redact secrets:  ') + chalk.white(config.redactSecrets === false ? 'No' : 'Yes'));
 
   if (config.currentBranch) {
     console.log(chalk.gray('Current branch:  ') + chalk.white(config.currentBranch));
@@ -170,7 +171,7 @@ async function setConfigValue(
   value: string
 ): Promise<void> {
   // Validate key
-  const validKeys = ['projectName', 'groqApiKey', 'aiProvider', 'openaiApiKey', 'editor'];
+  const validKeys = ['projectName', 'groqApiKey', 'aiProvider', 'openaiApiKey', 'editor', 'redactSecrets'];
 
   if (!validKeys.includes(key)) {
     console.log(chalk.red(`Error: Invalid configuration key "${key}"`));
@@ -183,6 +184,20 @@ async function setConfigValue(
     console.log(chalk.red('Error: Invalid Groq API key format'));
     console.log(chalk.gray('API key should start with "gsk_"'));
     process.exit(1);
+  }
+
+  // Parse booleans
+  if (key === 'redactSecrets') {
+    const normalized = value.trim().toLowerCase();
+    const boolValue = normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'y';
+    const boolValueFalse = normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'n';
+    if (!boolValue && !boolValueFalse) {
+      console.log(chalk.red('Error: redactSecrets must be a boolean (true/false)'));
+      process.exit(1);
+    }
+    await configManager.update({ redactSecrets: boolValue });
+    console.log(chalk.green(`✓ Configuration updated: ${key} = ${boolValue}`));
+    return;
   }
 
   // Update configuration
