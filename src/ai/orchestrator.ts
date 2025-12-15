@@ -126,15 +126,80 @@ export async function planDocument(params: {
   preferredProvider?: ProviderId;
 }): Promise<{ plan: DocumentPlan; provider: ProviderId | 'offline' }> {
   const lang = params.config.language || 'en';
+  const diffPreview = truncateDiff(params.ctx.diff);
 
   const messages: AIChatMessage[] = [
     {
       role: 'system',
-      content: `You are analyzing a code change to decide how to document it. Your goal: create USEFUL documentation, not bloated documentation.\n\nOutput language: ${languageLabel(lang)}.\n\nReturn ONLY JSON matching this schema:\n{\n  "shouldGenerateDiagram": boolean,\n  "diagramRationale": string | null,\n  "diagramType": "sequence"|"flowchart"|"er"|"state"|"architecture"|null,\n  "diagramFocus": string | null,\n  \n  "shouldGenerateTable": boolean,\n  "tableRationale": string | null,\n  "tableType": "comparison"|"tradeoffs"|"steps"|null,\n  \n  "sections": string[],\n  "complexity": "minimal"|"standard"|"detailed",\n  \n  "skipGeneration": boolean,\n  "skipReason": string | null\n}`
+      content: `You are a documentation architect analyzing a code change to decide THE BEST way to document it.
+
+Your job: Analyze the DIFF and the developer's answers to decide what visual aids would GENUINELY help future maintainers understand this change.
+
+## When to generate a DIAGRAM:
+- New API endpoints or routes → flowchart showing the request flow
+- State management changes → state diagram
+- New integrations/services → architecture diagram showing components
+- Complex conditionals or branching logic → flowchart
+- Database schema changes → ER diagram
+- Async flows, webhooks, queues → sequence diagram
+- Hook/lifecycle changes → sequence or flowchart
+
+## When to generate a TABLE:
+- Configuration options added → comparison table of options
+- Multiple approaches considered → tradeoffs table
+- Step-by-step process → steps table
+- Before/after comparison → comparison table
+- Feature flags or toggles → options table
+
+## Analysis approach:
+1. Look at the FILES changed - what type of change is this?
+2. Look at the DIFF - is there branching logic, new functions, config?
+3. Look at the ANSWERS - did dev mention alternatives, steps, options?
+
+Be PROACTIVE - if a diagram or table would help, generate it!
+
+Output language: ${languageLabel(lang)}.
+
+Return ONLY valid JSON:
+{
+  "shouldGenerateDiagram": boolean,
+  "diagramRationale": "Why this diagram helps (or null)",
+  "diagramType": "sequence"|"flowchart"|"er"|"state"|"architecture"|null,
+  "diagramFocus": "What specifically to diagram (be precise)",
+  
+  "shouldGenerateTable": boolean,
+  "tableRationale": "Why this table helps (or null)",
+  "tableType": "comparison"|"tradeoffs"|"steps"|"options"|null,
+  "tableFocus": "What specifically to tabulate",
+  
+  "keyInsights": ["insight1", "insight2"],
+  "complexity": "minimal"|"standard"|"detailed",
+  
+  "skipGeneration": false,
+  "skipReason": null
+}`
     },
     {
       role: 'user',
-      content: `## The Change\nBranch: ${params.ctx.branch}\nCommits:\n${safe(params.config, params.ctx.commits.map(c => `${c.hash.substring(0, 7)} - ${c.message}`).join('\n'))}\n\nFiles changed: ${safe(params.config, params.ctx.files.join(', '))}\n\n## Developer's Answers\n${safe(params.config, params.qa.map((p, i) => `Q${i + 1}: ${p.question}\nA: ${p.answer}`).join('\n\n'))}\n\n## What Developer Already Provided\n- Diagrams: ${params.hasDeveloperDiagrams ? 'yes' : 'no'}\n- Tables: ${params.hasDeveloperTables ? 'yes' : 'no'}\n\n## Rules\n- If developer provided diagram, set shouldGenerateDiagram=false.\n- If developer provided table, set shouldGenerateTable=false.\n- Be conservative; only suggest visuals if they genuinely clarify.\n- If trivial, set skipGeneration=true with a clear reason.\n`
+      content: `## The Change
+Branch: ${params.ctx.branch}
+Commits:\n${safe(params.config, params.ctx.commits.map(c => `${c.hash.substring(0, 7)} - ${c.message}`).join('\n'))}
+
+Files changed (${params.ctx.files.length}): ${safe(params.config, params.ctx.files.join(', '))}
+
+## Diff Preview
+\`\`\`diff
+${safe(params.config, diffPreview)}
+\`\`\`
+
+## Developer's Brain Dump
+${safe(params.config, params.qa.map((p, i) => `Q${i + 1}: ${p.question}\nA: ${p.answer}`).join('\n\n'))}
+
+## Already Provided by Developer
+- Diagrams: ${params.hasDeveloperDiagrams ? 'YES (skip diagram generation)' : 'NO'}
+- Tables: ${params.hasDeveloperTables ? 'YES (skip table generation)' : 'NO'}
+
+Analyze this change and decide the best documentation strategy.`
     }
   ];
 
@@ -157,12 +222,11 @@ export async function planDocument(params: {
   if (params.hasDeveloperTables) plan.shouldGenerateTable = false;
 
   // Sanity defaults
-  if (!Array.isArray(plan.sections) || plan.sections.length === 0) {
-    plan.sections = ['Summary', 'How It Works'];
-  }
   if (!plan.complexity) plan.complexity = 'standard';
   if (plan.skipGeneration === undefined) plan.skipGeneration = false;
   if (plan.shouldGenerateDiagram === undefined) plan.shouldGenerateDiagram = false;
+  if (plan.shouldGenerateTable === undefined) plan.shouldGenerateTable = false;
+  if (!Array.isArray(plan.keyInsights)) plan.keyInsights = [];
   if (plan.shouldGenerateTable === undefined) plan.shouldGenerateTable = false;
 
   return { plan, provider: (result.provider as ProviderId) ?? 'offline' };
@@ -177,7 +241,8 @@ function offlinePlan(hasDiagram: boolean, hasTable: boolean): DocumentPlan {
     shouldGenerateTable: false,
     tableRationale: null,
     tableType: null,
-    sections: ['Summary', 'Notes'],
+    tableFocus: null,
+    keyInsights: [],
     complexity: 'minimal',
     skipGeneration: false,
     skipReason: null
@@ -192,53 +257,66 @@ export async function generateMainContent(params: {
   preferredProvider?: ProviderId;
 }): Promise<{ markdown: string; provider: ProviderId | 'offline' }> {
   const lang = params.config.language || 'en';
+  const diffPreview = truncateDiff(params.ctx.diff);
 
   const messages: AIChatMessage[] = [
     {
       role: 'system',
-      content: `You are synthesizing a BRAIN DUMP into useful documentation for future maintainers.
+      content: `You are creating a BRAIN DUMP document that captures the developer's tacit knowledge about this change.
 
-Your input: The developer's raw answers to probing questions about their change.
+CRITICAL RULES:
+1. **ONLY use information from the developer's answers** - NEVER invent or assume
+2. If an answer is short/vague (like "melhorar X"), quote it directly - don't expand it
+3. Use the DIFF to understand WHAT changed, but use ANSWERS to understand WHY
+4. Be honest when information is missing: "Developer noted: [brief answer]" is better than inventing context
 
-Your output: A structured summary that PRESERVES THE DEVELOPER'S INSIGHTS while making them scannable.
+OUTPUT FORMAT:
+Create a document with these sections (skip any section where you'd have to invent content):
 
-Rules:
-1. PRESERVE VOICE: Use the developer's own words and phrasing when they're clear
-2. DON'T INVENT: Never add information not in the answers
-3. HIGHLIGHT GOTCHAS: Surface warnings, edge cases, and "watch out for" items prominently
-4. CAPTURE DECISIONS: Clearly document what was chosen AND what was rejected (and why)
-5. MAKE ACTIONABLE: A future dev should know what to do (or not do) after reading this
+## 🧠 Brain Dump Summary
+2-3 sentences capturing the essence. If answers are vague, say so: "Developer's main focus was [X], though details were brief."
 
-Structure to use:
-## TL;DR
-One paragraph max. The core insight a future maintainer needs.
+## 📁 What Changed
+Based on the DIFF, list the key technical changes (files, functions, configs). Be specific.
 
-## The Context
-What triggered this? What was the problem?
+## 💡 Developer's Reasoning
+ONLY what the developer explicitly said. Format as bullet points quoting or closely paraphrasing their words.
+- If they said "melhorar X" → write "• Motivation: improve X (developer's words)"
+- If they mentioned alternatives → list them
+- If they mentioned risks → highlight them
 
-## The Approach
-What was done and WHY this approach over alternatives.
+## ⚠️ Watch Out
+Gotchas, edge cases, or warnings the developer mentioned. If none mentioned, OMIT this section entirely.
 
-## Watch Out
-Gotchas, edge cases, fragile areas, things that could break.
-
-## Future Notes
-(Only if relevant) Next steps, tech debt acknowledged, what would be improved with more time.
+## 🔮 Future Considerations  
+Only if developer mentioned next steps or improvements. Otherwise OMIT.
 
 Output language: ${languageLabel(lang)}.
-
-Return Markdown ONLY. Omit sections that have no relevant content from the answers.`
+Return Markdown ONLY.`
     },
     {
       role: 'user',
-      content: `Context:\n- Branch: ${params.ctx.branch}\n- Commits:\n${safe(params.config, params.ctx.commits.map(c => `${c.hash.substring(0, 7)} - ${c.message}`).join('\n'))}\n- Files: ${safe(params.config, params.ctx.files.join(', '))}\n\nDeveloper Brain Dump:\n${safe(params.config, params.qa.map((p, i) => `Q${i + 1}: ${p.question}\nA: ${p.answer}`).join('\n\n'))}\n\nSynthesize this into structured documentation.`
+      content: `## Technical Context
+Branch: ${params.ctx.branch}
+Commits: ${params.ctx.commits.map(c => c.message).join('; ')}
+Files (${params.ctx.files.length}): ${safe(params.config, params.ctx.files.slice(0, 20).join(', '))}${params.ctx.files.length > 20 ? '...' : ''}
+
+## Diff Preview
+\`\`\`diff
+${safe(params.config, diffPreview)}
+\`\`\`
+
+## Developer's Answers (use these as the PRIMARY source)
+${safe(params.config, params.qa.map((p, i) => `**Q${i + 1}:** ${p.question}\n**A:** ${p.answer}`).join('\n\n'))}
+
+Create the brain dump document. Remember: quote the developer, don't invent.`
     }
   ];
 
   const result = await tryProviders({
     config: params.config,
     preferred: params.preferredProvider || params.config.generation?.providers?.content || params.config.aiProvider || 'groq',
-    run: async (provider) => provider.chatText({ config: params.config, messages, temperature: 0.6, maxTokens: 2500 })
+    run: async (provider) => provider.chatText({ config: params.config, messages, temperature: 0.4, maxTokens: 3000 })
   });
 
   if (!result.value) {
@@ -255,6 +333,7 @@ Return Markdown ONLY. Omit sections that have no relevant content from the answe
 
 export async function generateDiagram(params: {
   config: RedocConfig;
+  ctx: ChangeContext;
   qa: Array<{ question: string; answer: string }>;
   plan: DocumentPlan;
   preferredProvider?: ProviderId;
@@ -264,22 +343,52 @@ export async function generateDiagram(params: {
   }
 
   const lang = params.config.language || 'en';
+  const diffPreview = truncateDiff(params.ctx.diff);
 
   const messages: AIChatMessage[] = [
     {
       role: 'system',
-      content: `Generate a ${params.plan.diagramType} Mermaid diagram.\n\nWHY needed: ${params.plan.diagramRationale || ''}\nWHAT to illustrate: ${params.plan.diagramFocus || ''}\n\nRules:\n- Keep simple: 4-6 elements max.\n- Only essential elements.\n- Return ONLY a Mermaid fenced code block.\n- Output language: ${languageLabel(lang)}.`
+      content: `Generate a ${params.plan.diagramType.toUpperCase()} Mermaid diagram.
+
+PURPOSE: ${params.plan.diagramRationale || 'Visualize the change'}
+FOCUS: ${params.plan.diagramFocus || 'Key components and flow'}
+
+RULES:
+- Use REAL names from the code (functions, files, classes from the diff)
+- Keep it simple: 5-8 elements max
+- Make it USEFUL - show relationships and flow that aren't obvious from reading code
+- Return ONLY a valid Mermaid code block
+
+Example format:
+\`\`\`mermaid
+${params.plan.diagramType === 'flowchart' ? 'flowchart TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Action]\n    B -->|No| D[Other]' : ''}
+${params.plan.diagramType === 'sequence' ? 'sequenceDiagram\n    participant A as Client\n    participant B as Server\n    A->>B: Request\n    B-->>A: Response' : ''}
+${params.plan.diagramType === 'architecture' ? 'flowchart LR\n    subgraph Frontend\n    A[UI]\n    end\n    subgraph Backend\n    B[API]\n    end\n    A --> B' : ''}
+\`\`\`
+
+Output language for labels: ${languageLabel(lang)}.`
     },
     {
       role: 'user',
-      content: `Context (developer Q&A):\n${safe(params.config, params.qa.map((p, i) => `Q${i + 1}: ${p.question}\nA: ${p.answer}`).join('\n\n'))}`
+      content: `## Files Changed
+${params.ctx.files.slice(0, 15).join('\\n')}
+
+## Diff Preview
+\`\`\`diff
+${safe(params.config, diffPreview.slice(0, 3000))}
+\`\`\`
+
+## Developer Context
+${safe(params.config, params.qa.map((p, i) => `Q: ${p.question}\\nA: ${p.answer}`).join('\\n\\n'))}
+
+Generate the ${params.plan.diagramType} diagram now.`
     }
   ];
 
   const result = await tryProviders({
     config: params.config,
     preferred: params.preferredProvider || params.config.generation?.providers?.diagrams || params.config.aiProvider || 'groq',
-    run: async (provider) => provider.chatText({ config: params.config, messages, temperature: 0.3, maxTokens: 1200 })
+    run: async (provider) => provider.chatText({ config: params.config, messages, temperature: 0.3, maxTokens: 1500 })
   });
 
   if (!result.value) return { mermaid: null, provider: 'offline' };
@@ -297,6 +406,7 @@ export async function generateDiagram(params: {
 
 export async function generateTable(params: {
   config: RedocConfig;
+  ctx: ChangeContext;
   qa: Array<{ question: string; answer: string }>;
   plan: DocumentPlan;
   preferredProvider?: ProviderId;
@@ -310,11 +420,34 @@ export async function generateTable(params: {
   const messages: AIChatMessage[] = [
     {
       role: 'system',
-      content: `Generate ONE Markdown table of type "${params.plan.tableType}" to clarify the change.\n\nWHY needed: ${params.plan.tableRationale || ''}\n\nRules:\n- Keep small (max ~6 rows).\n- Return ONLY the Markdown table (no extra text).\n- Output language: ${languageLabel(lang)}.`
+      content: `Generate a Markdown table of type "${params.plan.tableType}".
+
+PURPOSE: ${params.plan.tableRationale || 'Clarify the change'}
+FOCUS: ${params.plan.tableFocus || 'Key information'}
+
+TABLE TYPES:
+- comparison: Before vs After, or Option A vs Option B
+- tradeoffs: Pros and Cons of the approach taken
+- steps: Sequential steps or process flow  
+- options: Configuration options or feature flags
+
+RULES:
+- Use REAL data from the diff and developer answers
+- Keep it concise: 3-6 rows max
+- Make headers clear and descriptive
+- Return ONLY the Markdown table (no extra text)
+
+Output language: ${languageLabel(lang)}.`
     },
     {
       role: 'user',
-      content: `Context (developer Q&A):\n${safe(params.config, params.qa.map((p, i) => `Q${i + 1}: ${p.question}\nA: ${p.answer}`).join('\n\n'))}`
+      content: `## Files Changed
+${params.ctx.files.slice(0, 10).join('\\n')}
+
+## Developer Context
+${safe(params.config, params.qa.map((p, i) => `Q: ${p.question}\\nA: ${p.answer}`).join('\\n\\n'))}
+
+Generate the ${params.plan.tableType} table now.`
     }
   ];
 

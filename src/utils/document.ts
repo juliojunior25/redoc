@@ -301,7 +301,8 @@ export class DocumentGenerator {
     const developerTables: string[] = [];
     const urls = new Set<string>();
 
-    const qaRendered = params.qa.map((pair, idx) => {
+    // Parse developer answers for rich content
+    params.qa.forEach(pair => {
       const parsed = parseRichResponse(pair.answer);
       parsed.mermaidBlocks.forEach(b => developerDiagrams.push(b));
       parsed.codeBlocks.forEach(b => {
@@ -310,69 +311,144 @@ export class DocumentGenerator {
       });
       parsed.tables.forEach(t => developerTables.push(t));
       parsed.urls.forEach(u => urls.add(u));
-
-      const answerText = parsed.plainText.trim() ? parsed.plainText.trim() : '_No answer._';
-      return `### Q${idx + 1}: ${pair.question}\n\n${answerText}`;
-    }).join('\n\n');
+    });
 
     const lines: string[] = [];
-    lines.push(`# ${params.title}`);
+    
+    // Header
+    lines.push(`# 🧠 ${params.title}`);
     lines.push('');
-    lines.push(`**Branch:** ${params.branch} | **Date:** ${date} | **Commits:** ${params.commits.length}`);
+    lines.push(`> **Brain Dump** | Branch: \`${params.branch}\` | ${date} ${time} | ${params.commits.length} commit(s)`);
     lines.push('');
+    
+    // Commits summary
+    if (params.commits.length > 0) {
+      lines.push('<details>');
+      lines.push('<summary>📝 Commits included</summary>');
+      lines.push('');
+      params.commits.forEach(c => {
+        lines.push(`- \`${c.hash.substring(0, 7)}\` ${c.message}`);
+      });
+      lines.push('');
+      lines.push('</details>');
+      lines.push('');
+    }
+
+    // Files changed
+    if (params.files.length > 0) {
+      lines.push('<details>');
+      lines.push(`<summary>📁 Files changed (${params.files.length})</summary>`);
+      lines.push('');
+      params.files.slice(0, 30).forEach(f => {
+        lines.push(`- \`${f}\``);
+      });
+      if (params.files.length > 30) {
+        lines.push(`- ... and ${params.files.length - 30} more`);
+      }
+      lines.push('');
+      lines.push('</details>');
+      lines.push('');
+    }
+
     lines.push('---');
     lines.push('');
 
-    // Developer-provided diagrams first; otherwise optional AI diagram.
-    if (developerDiagrams.length > 0) {
-      lines.push(developerDiagrams.join('\n\n'));
+    // AI Diagram (if generated)
+    if (params.aiDiagram) {
+      lines.push('## 📊 Architecture / Flow');
       lines.push('');
-    } else if (params.aiDiagram) {
       lines.push(params.aiDiagram);
       lines.push('');
     }
 
+    // Developer-provided diagrams
+    if (developerDiagrams.length > 0) {
+      if (!params.aiDiagram) {
+        lines.push('## 📊 Diagrams');
+        lines.push('');
+      }
+      lines.push(developerDiagrams.join('\n\n'));
+      lines.push('');
+    }
+
+    // Main AI-synthesized content
     const main = String(params.mainContentMarkdown ?? '').trim();
     if (main) {
       lines.push(main);
       lines.push('');
     }
 
-    lines.push('## Q&A');
-    lines.push('');
-    lines.push(qaRendered || '_No Q&A captured._');
-    lines.push('');
-
-    if (codeBlocks.length > 0) {
-      lines.push('## Code');
+    // AI Table (if generated)
+    if (params.aiTable) {
+      lines.push('## 📋 Summary Table');
       lines.push('');
-      lines.push(codeBlocks.join('\n\n'));
+      lines.push(params.aiTable);
       lines.push('');
     }
 
-    // Avoid table duplication: if developer provided tables, ignore AI table even if present.
-    const tableBlocks: string[] = [];
-    if (developerTables.length === 0 && params.aiTable) {
-      tableBlocks.push(params.aiTable);
-    }
-    developerTables.forEach(t => tableBlocks.push(t));
-
-    if (tableBlocks.length > 0) {
-      lines.push('## Tables');
-      lines.push('');
-      lines.push(tableBlocks.join('\n\n'));
-      lines.push('');
-    }
-
-    if (urls.size > 0) {
-      lines.push('## References');
-      lines.push('');
-      Array.from(urls).forEach(u => lines.push(`- ${u}`));
+    // Developer tables
+    if (developerTables.length > 0) {
+      if (!params.aiTable) {
+        lines.push('## 📋 Tables');
+        lines.push('');
+      }
+      lines.push(developerTables.join('\n\n'));
       lines.push('');
     }
 
     lines.push('---');
     lines.push('');
+    
+    // Raw Q&A section (collapsed by default for cleaner look)
+    lines.push('<details>');
+    lines.push('<summary>💬 Raw Q&A Session</summary>');
+    lines.push('');
+    params.qa.forEach((pair, idx) => {
+      const parsed = parseRichResponse(pair.answer);
+      const answerText = parsed.plainText.trim() ? parsed.plainText.trim() : '_No answer._';
+      lines.push(`**Q${idx + 1}:** ${pair.question}`);
+      lines.push('');
+      lines.push(`> ${answerText.split('\n').join('\n> ')}`);
+      lines.push('');
+    });
+    lines.push('</details>');
+    lines.push('');
+
+    // Code blocks from answers
+    if (codeBlocks.length > 0) {
+      lines.push('<details>');
+      lines.push('<summary>💻 Code Snippets</summary>');
+      lines.push('');
+      lines.push(codeBlocks.join('\n\n'));
+      lines.push('');
+      lines.push('</details>');
+      lines.push('');
+    }
+
+    // References
+    if (urls.size > 0) {
+      lines.push('## 🔗 References');
+      lines.push('');
+      Array.from(urls).forEach(u => lines.push(`- ${u}`));
+      lines.push('');
+    }
+
+    // AI Decisions (transparency)
+    lines.push('---');
+    lines.push('');
+    lines.push('<details>');
+    lines.push('<summary>🤖 AI Decisions</summary>');
+    lines.push('');
+    lines.push(`- **Complexity:** ${params.plan.complexity}`);
+    lines.push(`- **Generated diagram:** ${params.plan.shouldGenerateDiagram ? `Yes (${params.plan.diagramType}) - ${params.plan.diagramRationale}` : 'No'}`);
+    lines.push(`- **Generated table:** ${params.plan.shouldGenerateTable ? `Yes (${params.plan.tableType}) - ${params.plan.tableRationale}` : 'No'}`);
+    if (params.plan.keyInsights && params.plan.keyInsights.length > 0) {
+      lines.push(`- **Key insights identified:** ${params.plan.keyInsights.join('; ')}`);
+    }
+    lines.push('');
+    lines.push('</details>');
+    lines.push('');
+
     lines.push(`*Brain dump captured on ${date}, ${time}*`);
     lines.push('');
     return lines.join('\n');

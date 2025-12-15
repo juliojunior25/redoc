@@ -50,9 +50,10 @@ export interface DocumentPlan {
 
   shouldGenerateTable: boolean;
   tableRationale: string | null;
-  tableType: 'comparison' | 'tradeoffs' | 'steps' | null;
+  tableType: 'comparison' | 'tradeoffs' | 'steps' | 'options' | null;
+  tableFocus?: string | null;
 
-  sections: string[];
+  keyInsights?: string[];
   complexity: 'minimal' | 'standard' | 'detailed';
 
   skipGeneration: boolean;

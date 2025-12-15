@@ -196,7 +196,14 @@ export async function prePushCommand(options: { skip?: boolean; offline?: boolea
         });
 
     if (options.verbose) {
-      genSpinner.info(`Plan: complexity=${planResult.plan.complexity}, sections=${planResult.plan.sections.join(', ')}, diagram=${planResult.plan.shouldGenerateDiagram}, table=${planResult.plan.shouldGenerateTable}${planResult.provider ? ` (via ${planResult.provider})` : ''}`);
+      const p = planResult.plan;
+      genSpinner.info(`AI Analysis (via ${planResult.provider}):`);
+      console.log(chalk.gray(`  • Complexity: ${p.complexity}`));
+      console.log(chalk.gray(`  • Diagram: ${p.shouldGenerateDiagram ? `YES (${p.diagramType}) - ${p.diagramRationale}` : 'No'}`));
+      console.log(chalk.gray(`  • Table: ${p.shouldGenerateTable ? `YES (${p.tableType}) - ${p.tableRationale}` : 'No'}`));
+      if (p.keyInsights && p.keyInsights.length > 0) {
+        console.log(chalk.gray(`  • Key insights: ${p.keyInsights.join('; ')}`));
+      }
       genSpinner.start();
     }
 
@@ -232,8 +239,8 @@ export async function prePushCommand(options: { skip?: boolean; offline?: boolea
 
     const tasks = {
       content: () => generateMainContent({ config, ctx, qa, plan: planResult.plan, preferredProvider: config.generation?.providers?.content }),
-      diagram: () => generateDiagram({ config, qa, plan: planResult.plan, preferredProvider: config.generation?.providers?.diagrams }),
-      table: () => generateTable({ config, qa, plan: planResult.plan, preferredProvider: config.generation?.providers?.content })
+      diagram: () => generateDiagram({ config, ctx, qa, plan: planResult.plan, preferredProvider: config.generation?.providers?.diagrams }),
+      table: () => generateTable({ config, ctx, qa, plan: planResult.plan, preferredProvider: config.generation?.providers?.content })
     };
 
     const [contentRes, diagramRes, tableRes] = doParallel
