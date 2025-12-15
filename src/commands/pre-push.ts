@@ -30,9 +30,44 @@ function normalizeText(text: string): string {
 }
 
 /**
+ * Check if we have a valid interactive TTY
+ */
+function hasInteractiveTTY(): boolean {
+  try {
+    // Check if stdin/stdout are TTYs
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      return false;
+    }
+    // Additional check for Bun compatibility
+    if (typeof process.stdin.setRawMode !== 'function') {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Pre-push hook - interactive brain dump session
  */
 export async function prePushCommand(options: { skip?: boolean; offline?: boolean; verbose?: boolean } = {}): Promise<void> {
+  // Early TTY check - exit silently if no interactive terminal
+  if (!hasInteractiveTTY()) {
+    // Log to file for debugging, but don't crash
+    const logDir = path.join(process.env.HOME || '~', '.redoc');
+    try {
+      await fs.mkdir(logDir, { recursive: true });
+      await fs.appendFile(
+        path.join(logDir, 'pre-push.log'),
+        `[${new Date().toISOString()}] Skipped: no interactive TTY available\n`
+      );
+    } catch {
+      // Ignore logging errors
+    }
+    return;
+  }
+
   console.log(chalk.blue.bold('\n💭 ReDoc - Brain Dump Time\n'));
 
   try {

@@ -521,16 +521,10 @@ fi
 # ========== End ReDoc ==========
 `;
 
-    // Install post-commit hook
+    // Install post-commit hook only (pre-push is run manually via `redoc run`)
     await this.appendToHook(
       path.join(targetHooksDir, 'post-commit'),
       redocPostCommitSnippet
-    );
-
-    // Install pre-push hook
-    await this.appendToHook(
-      path.join(targetHooksDir, 'pre-push'),
-      redocPrePushSnippet
     );
 
     return;
