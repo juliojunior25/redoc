@@ -21,6 +21,21 @@ describe('ConfigManager', () => {
     redactSecrets: true
   };
 
+  const expectedLoadedConfig = {
+    ...mockConfig,
+    docsPath: mockConfig.submodulePath,
+    language: 'en' as const,
+    versionDocs: true,
+    generation: {
+      parallel: false,
+      providers: {
+        analysis: 'groq' as const,
+        content: 'groq' as const,
+        diagrams: 'groq' as const
+      }
+    }
+  };
+
   beforeEach(() => {
     mockReadFile.mockClear();
     mockWriteFile.mockClear();
@@ -34,7 +49,7 @@ describe('ConfigManager', () => {
       const configManager = new ConfigManager('/test');
       const config = await configManager.load();
 
-      expect(config).toEqual(mockConfig);
+      expect(config).toEqual(expectedLoadedConfig);
       expect(mockReadFile).toHaveBeenCalledTimes(1);
     });
 
@@ -80,6 +95,7 @@ describe('ConfigManager', () => {
 
       expect(updated.projectName).toBe('new-name');
       expect(updated.submodulePath).toBe(mockConfig.submodulePath);
+      expect(updated.docsPath).toBe(mockConfig.submodulePath);
     });
   });
 
@@ -115,9 +131,11 @@ describe('ConfigManager', () => {
       );
 
       expect(config.projectName).toBe('my-project');
-      expect(config.submodulePath).toBe('/test/redocs');
+      expect(config.docsPath).toBe('/test/redocs');
       expect(config.groqApiKey).toBe('gsk_test123');
       expect(config.redactSecrets).toBe(true);
+      expect(config.language).toBe('en');
+      expect(config.versionDocs).toBe(true);
       expect(mockWriteFile).toHaveBeenCalled();
     });
 
@@ -133,6 +151,8 @@ describe('ConfigManager', () => {
       expect(config.projectName).toBe('my-project');
       expect(config.groqApiKey).toBeUndefined();
       expect(config.redactSecrets).toBe(true);
+      expect(config.language).toBe('en');
+      expect(config.versionDocs).toBe(true);
     });
   });
 
@@ -238,7 +258,7 @@ describe('ConfigManager', () => {
       const configManager = new ConfigManager('/test');
       const config = await configManager.getConfig();
 
-      expect(config).toEqual(mockConfig);
+      expect(config).toEqual(expectedLoadedConfig);
     });
   });
 });

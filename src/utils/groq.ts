@@ -1,10 +1,16 @@
 import Groq from 'groq-sdk';
-import { CommitVersion, GroqQuestion } from '../types.js';
-import { DEFAULT_QUESTIONS } from '../templates/feature-report.js';
 import { sanitizeForAI } from './sanitize.js';
 
 export interface GroqManagerOptions {
   redactSecrets?: boolean;
+}
+
+export interface QuestionGenerationContext {
+  branch: string;
+  commits: string[];
+  files: string[];
+  diff: string;
+  language?: 'en' | 'pt-BR' | 'es';
 }
 
 /**
@@ -20,44 +26,45 @@ export class GroqManager {
   }
 
   /**
-   * Generate contextual questions based on commit versions
+   * Generate contextual questions based on actual diff (PRD).
+   * Returns 2-4 questions as plain strings.
    */
-  async generateQuestions(versions: CommitVersion[]): Promise<GroqQuestion[]> {
-    const context = this.prepareContext(versions);
+  async generateQuestions(ctx: QuestionGenerationContext): Promise<string[]> {
+    const language = ctx.language || 'en';
+    const languageLabel = language === 'pt-BR' ? 'Portuguese (Brazil)' : language === 'es' ? 'Spanish' : 'English';
 
-    const systemPrompt = `Você é um assistente que captura brain dumps concisos de desenvolvedores.
+    const diffPreview = this.truncateDiff(ctx.diff);
 
-Analise os commits e diffs fornecidos e gere EXATAMENTE 4 perguntas abertas e informais para capturar o conhecimento do desenvolvedor.
+    const safeCommits = this.redactSecrets ? sanitizeForAI(ctx.commits.join('\n')).text : ctx.commits.join('\n');
+    const safeFiles = this.redactSecrets ? sanitizeForAI(ctx.files.join(', ')).text : ctx.files.join(', ');
+    const safeDiff = this.redactSecrets ? sanitizeForAI(diffPreview).text : diffPreview;
 
-As perguntas devem ter os seguintes IDs (em ordem):
-1. what_and_why - O que foi feito e por quê (contexto geral)
-2. key_decisions - Decisões técnicas importantes ("escolhi X porque...")
-3. gotchas - Pegadinhas, edge cases, pontos de atenção
-4. additional_context - Contexto adicional, TODOs, links úteis
+    const systemPrompt = `You help document a code change.
 
-IMPORTANTE:
-- Referencie código específico dos diffs quando relevante
-- Seja informal e direto
-- Perguntas devem elicitar respostas de 2-5 linhas
-- Inclua contexto técnico útil no campo "context"
+Generate 2-4 smart, contextual questions to understand the developer's reasoning (WHY, not WHAT).
 
-Retorne APENAS um objeto JSON com a chave "questions" contendo um array de 4 objetos:
-{
-  "questions": [
-    {
-      "id": "what_and_why",
-      "section": "Essencial",
-      "question": "Sua pergunta aqui?",
-      "context": "Contexto técnico relevante"
-    }
-  ]
-}`;
+Rules:
+- Be specific to THIS change (use filenames, functions, behaviors seen in the diff).
+- Ask about WHY, tradeoffs, edge cases, rollout, constraints, not what the code already shows.
+- 2 questions for small changes, 3-4 for larger changes.
+- Each question should be answerable in 1-3 sentences.
+- Output language: ${languageLabel}.
 
-    const userPrompt = `Analise estes commits e gere 4 perguntas contextuais em formato JSON:
+Return ONLY JSON in this shape:
+{ "questions": ["...", "..."] }`;
 
-${context}
+    const userPrompt = `## The Change
+Branch: ${ctx.branch}
+Commits:
+${safeCommits}
 
-Retorne um objeto JSON com a estrutura especificada.`;
+Files changed: ${safeFiles}
+
+Diff preview:
+\n\n\`\`\`diff
+${safeDiff}
+\`\`\`
+`;
 
     try {
       const completion = await this.client.chat.completions.create({
@@ -79,87 +86,77 @@ Retorne um objeto JSON com a estrutura especificada.`;
 
       const parsed = JSON.parse(response);
 
-      // Handle multiple possible formats
-      let questions: any[];
-
-      if (Array.isArray(parsed)) {
-        questions = parsed;
-      } else if (parsed.questions && Array.isArray(parsed.questions)) {
-        questions = parsed.questions;
-      } else if (parsed.data && Array.isArray(parsed.data)) {
-        questions = parsed.data;
-      } else {
-        // Try to extract array from object values
-        const values = Object.values(parsed);
-        const arrayValue = values.find(v => Array.isArray(v));
-        if (arrayValue) {
-          questions = arrayValue as any[];
-        } else {
-          console.error('Groq response format:', JSON.stringify(parsed, null, 2));
-          throw new Error('Invalid response format - no array found');
-        }
+      const questions = Array.isArray(parsed?.questions) ? parsed.questions : null;
+      if (!questions || questions.length < 2) {
+        throw new Error('Invalid response format - missing questions array');
       }
 
-      if (!Array.isArray(questions) || questions.length < 4) {
-        console.error('Questions array:', questions);
-        throw new Error(`Invalid response format - expected 4 questions, got ${questions?.length || 0}`);
+      const normalized = questions
+        .map((q: any) => String(q ?? '').trim())
+        .filter((q: string) => q.length > 0)
+        .map((q: string) => q.replace(/^\d+\s*[\).:-]\s*/, ''))
+        .slice(0, 4);
+
+      if (normalized.length < 2) {
+        throw new Error('Invalid questions - too few after normalization');
       }
 
-      return questions.slice(0, 4);
+      return normalized;
 
     } catch (error) {
-      console.warn('Groq API failed, using fallback questions:', error);
-      return this.getFallbackQuestions();
+      console.warn('Groq API failed, using offline fallback questions:', error);
+      return this.getOfflineFallbackQuestions(ctx);
     }
   }
 
   /**
    * Prepare context from commit versions for AI
    */
-  private prepareContext(versions: CommitVersion[]): string {
-    return versions.map(v => {
-      // Limit diff size to avoid token limits
-      const truncatedDiff = v.diffs.length > 2000
-        ? v.diffs.substring(0, 2000) + '\n... (truncated)'
-        : v.diffs;
-
-      const safeMessage = this.redactSecrets ? sanitizeForAI(v.message).text : v.message;
-      const safeFiles = this.redactSecrets ? sanitizeForAI(v.files.join(', ')).text : v.files.join(', ');
-      const safeDiff = this.redactSecrets ? sanitizeForAI(truncatedDiff).text : truncatedDiff;
-
-      return `## Version ${v.version}
-**Commit:** ${v.commit}
-**Message:** ${safeMessage}
-**Files:** ${safeFiles}
-
-**Diffs:**
-\`\`\`diff
-${safeDiff}
-\`\`\`
-`;
-    }).join('\n---\n');
+  private truncateDiff(diff: string): string {
+    const maxChars = 6000;
+    if (diff.length <= maxChars) return diff;
+    return diff.substring(0, maxChars) + '\n... (truncated)';
   }
 
   /**
-   * Get fallback questions when AI fails
+   * Offline fallback questions (generic, localized).
    */
-  private getFallbackQuestions(): GroqQuestion[] {
-    return DEFAULT_QUESTIONS.map(q => ({
-      id: q.id,
-      section: q.section,
-      question: q.question,
-      context: q.context
-    }));
+  private getOfflineFallbackQuestions(ctx: QuestionGenerationContext): string[] {
+    const language = ctx.language || 'en';
+
+    // Simple heuristic: fewer questions for smaller diffs.
+    const isSmall = ctx.diff.split(/\r?\n/).filter(l => l.startsWith('+') || l.startsWith('-')).length < 80;
+    const count = isSmall ? 2 : 3;
+
+    const bank: Record<'en' | 'pt-BR' | 'es', string[]> = {
+      en: [
+        'What problem does this change solve, and why now?',
+        'What alternatives did you consider, and why did you choose this approach?',
+        'What edge cases or risks should a future maintainer watch for?'
+      ],
+      'pt-BR': [
+        'Qual problema essa mudança resolve, e por que agora?',
+        'Quais alternativas você considerou, e por que escolheu essa abordagem?',
+        'Quais edge cases/risco um futuro mantenedor precisa ficar atento?'
+      ],
+      es: [
+        '¿Qué problema resuelve este cambio, y por qué ahora?',
+        '¿Qué alternativas consideraste y por qué elegiste este enfoque?',
+        '¿Qué casos límite o riesgos debería vigilar alguien en el futuro?'
+      ]
+    };
+
+    return bank[language].slice(0, count);
   }
 
   /**
    * Refine raw answers with AI to make them more professional and detailed
    */
   async refineAnswers(
-    versions: CommitVersion[],
+    versions: any[],
     rawAnswers: Record<string, string>
   ): Promise<Record<string, string>> {
-    const context = this.prepareContext(versions);
+    const context = '';
 
     const safeRawAnswers = this.redactSecrets
       ? Object.fromEntries(

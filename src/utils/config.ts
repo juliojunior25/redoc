@@ -8,9 +8,53 @@ import { RedocConfig } from '../types.js';
 export class ConfigManager {
   private configPath: string;
   private config: RedocConfig | null = null;
+  private projectRoot: string;
 
   constructor(projectRoot: string = process.cwd()) {
+    this.projectRoot = projectRoot;
     this.configPath = path.join(projectRoot, '.redocrc.json');
+  }
+
+  private applyDefaultsAndEnv(config: RedocConfig): RedocConfig {
+    const migrated: RedocConfig = { ...config };
+
+    // Backward-compatible migration
+    if (!migrated.docsPath && migrated.submodulePath) {
+      migrated.docsPath = migrated.submodulePath;
+    }
+
+    // Defaults (PRD)
+    if (!migrated.docsPath) migrated.docsPath = '.redoc';
+    if (migrated.versionDocs === undefined) migrated.versionDocs = true;
+    if (!migrated.language) migrated.language = 'en';
+    if (!migrated.aiProvider) migrated.aiProvider = 'groq';
+    if (migrated.redactSecrets === undefined) migrated.redactSecrets = true;
+
+    if (!migrated.generation) {
+      migrated.generation = { parallel: false, providers: { analysis: 'groq', content: 'groq', diagrams: 'groq' } };
+    } else {
+      if (migrated.generation.parallel === undefined) migrated.generation.parallel = false;
+      if (!migrated.generation.providers) {
+        migrated.generation.providers = { analysis: 'groq', content: 'groq', diagrams: 'groq' };
+      } else {
+        if (!migrated.generation.providers.analysis) migrated.generation.providers.analysis = 'groq';
+        if (!migrated.generation.providers.content) migrated.generation.providers.content = 'groq';
+        if (!migrated.generation.providers.diagrams) migrated.generation.providers.diagrams = 'groq';
+      }
+    }
+
+    // Env overrides
+    if (process.env.GROQ_API_KEY) migrated.groqApiKey = process.env.GROQ_API_KEY;
+    if (process.env.GOOGLE_API_KEY) migrated.geminiApiKey = process.env.GOOGLE_API_KEY;
+    if (process.env.CEREBRAS_API_KEY) migrated.cerebrasApiKey = process.env.CEREBRAS_API_KEY;
+    if (process.env.REDOC_LANGUAGE) {
+      const lang = process.env.REDOC_LANGUAGE;
+      if (lang === 'en' || lang === 'pt-BR' || lang === 'es') {
+        migrated.language = lang;
+      }
+    }
+
+    return migrated;
   }
 
   /**
@@ -24,8 +68,10 @@ export class ConfigManager {
     try {
       const content = await fs.readFile(this.configPath, 'utf-8');
       const parsed = JSON.parse(content) as RedocConfig;
-      this.config = parsed;
-      return parsed;
+
+      const normalized = this.applyDefaultsAndEnv(parsed);
+      this.config = normalized;
+      return normalized;
     } catch (error) {
       throw new Error('ReDoc not initialized. Run "redoc init" first.');
     }
@@ -35,9 +81,10 @@ export class ConfigManager {
    * Save configuration to disk
    */
   async save(config: RedocConfig): Promise<void> {
-    const content = JSON.stringify(config, null, 2);
+    const normalized = this.applyDefaultsAndEnv(config);
+    const content = JSON.stringify(normalized, null, 2);
     await fs.writeFile(this.configPath, content, 'utf-8');
-    this.config = config;
+    this.config = normalized;
   }
 
   /**
@@ -87,7 +134,21 @@ export class ConfigManager {
    */
   async getSubmodulePath(): Promise<string> {
     const config = await this.load();
-    return config.submodulePath;
+    // Backward compatible: prefer docsPath.
+    return this.resolveDocsPath(config);
+  }
+
+  /**
+   * PRD name for docs storage path.
+   */
+  async getDocsPath(): Promise<string> {
+    const config = await this.load();
+    return this.resolveDocsPath(config);
+  }
+
+  resolveDocsPath(config: RedocConfig): string {
+    const raw = config.docsPath || config.submodulePath || '.redoc';
+    return path.isAbsolute(raw) ? raw : path.join(this.projectRoot, raw);
   }
 
   /**
@@ -104,12 +165,14 @@ export class ConfigManager {
   static async createInitialConfig(
     projectRoot: string,
     projectName: string,
-    submodulePath: string,
+    docsPath: string,
     groqApiKey?: string
   ): Promise<RedocConfig> {
     const config: RedocConfig = {
       projectName,
-      submodulePath,
+      docsPath,
+      versionDocs: true,
+      language: 'en',
       groqApiKey,
       aiProvider: 'groq',
       redactSecrets: true

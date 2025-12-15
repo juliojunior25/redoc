@@ -6,6 +6,13 @@ import * as fs from 'fs/promises';
 import { GitManager } from '../utils/git.js';
 import { ConfigManager } from '../utils/config.js';
 import { GroqManager } from '../utils/groq.js';
+import type { RedocConfig } from '../types.js';
+
+type ProviderId = 'groq' | 'gemini' | 'cerebras' | 'ollama';
+
+function uniq<T>(items: T[]): T[] {
+  return Array.from(new Set(items));
+}
 
 /**
  * Initialize ReDoc in a project
@@ -66,37 +73,37 @@ export async function initCommand(): Promise<void> {
     default: 'local'
   }]);
 
-  let submodulePath: string;
+  let docsPath: string;
 
   if (storageType === 'local') {
     const { folderName } = await inquirer.prompt([{
       type: 'input',
       name: 'folderName',
       message: 'Documentation folder name:',
-      default: 'docs',
+      default: '.redoc',
       validate: (input) => input.trim().length > 0 || 'Folder name is required'
     }]);
 
-    submodulePath = path.join(projectRoot, folderName);
+    docsPath = folderName;
 
     // Create the docs directory
-    const docsDir = path.join(submodulePath, 'docs');
+    const docsDir = path.join(projectRoot, docsPath);
     await fs.mkdir(docsDir, { recursive: true });
-    console.log(chalk.green(`  ✓ Created ${folderName}/docs/`));
+    console.log(chalk.green(`  ✓ Created ${folderName}/`));
 
   } else if (storageType === 'existing') {
     const { existingPath } = await inquirer.prompt([{
       type: 'input',
       name: 'existingPath',
       message: 'Path to existing folder/submodule (relative to project root):',
-      default: 'docs',
+      default: '.redoc',
       validate: (input) => input.trim().length > 0 || 'Path is required'
     }]);
 
-    submodulePath = path.join(projectRoot, existingPath);
+    docsPath = existingPath;
 
     // Ensure docs directory exists
-    const docsDir = path.join(submodulePath, 'docs');
+    const docsDir = path.join(projectRoot, docsPath);
     try {
       await fs.mkdir(docsDir, { recursive: true });
     } catch {
@@ -110,13 +117,13 @@ export async function initCommand(): Promise<void> {
       type: 'input',
       name: 'newSubmoduleName',
       message: 'Name for new documentation submodule:',
-      default: 'redocs',
+      default: '.redoc',
       validate: (input) => input.trim().length > 0 || 'Name is required'
     }]);
 
     const spinner = ora('Creating submodule...').start();
     try {
-      submodulePath = await gitManager.createSubmodule(newSubmoduleName);
+      docsPath = await gitManager.createSubmodule(newSubmoduleName);
       spinner.succeed(`Submodule created at ${newSubmoduleName}/`);
     } catch (error) {
       spinner.fail('Failed to create submodule');
@@ -124,39 +131,231 @@ export async function initCommand(): Promise<void> {
     }
   }
 
-  // Get Groq API key
-  const { hasGroqKey } = await inquirer.prompt([{
-    type: 'confirm',
-    name: 'hasGroqKey',
-    message: 'Do you have a Groq API key?',
-    default: false
+  // AI provider
+  const { aiProvider } = await inquirer.prompt([{
+    type: 'list',
+    name: 'aiProvider',
+    message: 'Which AI provider do you want to use by default?',
+    choices: [
+      { name: 'Groq (API key)', value: 'groq' },
+      { name: 'Gemini (Google API key)', value: 'gemini' },
+      { name: 'Cerebras (API key)', value: 'cerebras' },
+      { name: 'Ollama (local)', value: 'ollama' }
+    ],
+    default: 'groq'
   }]);
 
   let groqApiKey: string | undefined;
+  let geminiApiKey: string | undefined;
+  let cerebrasApiKey: string | undefined;
+  let ollamaUrl: string | undefined;
+  let ollamaModel: string | undefined;
 
-  if (hasGroqKey) {
-    const { apiKey } = await inquirer.prompt([{
-      type: 'password',
-      name: 'apiKey',
-      message: 'Groq API key (starts with gsk_):',
-      mask: '*',
+  const configureGroq = async () => {
+    const { hasKey } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'hasKey',
+      message: 'Do you have a Groq API key?',
+      default: false
+    }]);
+    if (hasKey) {
+      const { apiKey } = await inquirer.prompt([{
+        type: 'password',
+        name: 'apiKey',
+        message: 'Groq API key (starts with gsk_):',
+        mask: '*',
+        validate: (input) => {
+          if (input.trim().length === 0) return 'API key is required';
+          if (!GroqManager.validateApiKey(input)) return 'Invalid Groq API key format (should start with gsk_)';
+          return true;
+        }
+      }]);
+      groqApiKey = apiKey;
+    } else {
+      console.log(chalk.yellow('\nℹ️  You can add your Groq API key later with:'));
+      console.log(chalk.gray('   redoc config set groqApiKey <key>'));
+      console.log(chalk.gray('\n   Or set env var: GROQ_API_KEY\n'));
+      console.log(chalk.gray('   Get your key at: https://console.groq.com\n'));
+    }
+  };
+
+  const configureGemini = async () => {
+    const { hasKey } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'hasKey',
+      message: 'Do you have a Gemini (Google) API key?',
+      default: false
+    }]);
+    if (hasKey) {
+      const { apiKey } = await inquirer.prompt([{
+        type: 'password',
+        name: 'apiKey',
+        message: 'Gemini API key:',
+        mask: '*',
+        validate: (input) => input.trim().length > 0 || 'API key is required'
+      }]);
+      geminiApiKey = apiKey;
+    } else {
+      console.log(chalk.yellow('\nℹ️  You can add your Gemini API key later with:'));
+      console.log(chalk.gray('   redoc config set geminiApiKey <key>'));
+      console.log(chalk.gray('\n   Or set env var: GOOGLE_API_KEY\n'));
+    }
+  };
+
+  const configureCerebras = async () => {
+    const { hasKey } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'hasKey',
+      message: 'Do you have a Cerebras API key?',
+      default: false
+    }]);
+    if (hasKey) {
+      const { apiKey } = await inquirer.prompt([{
+        type: 'password',
+        name: 'apiKey',
+        message: 'Cerebras API key:',
+        mask: '*',
+        validate: (input) => input.trim().length > 0 || 'API key is required'
+      }]);
+      cerebrasApiKey = apiKey;
+    } else {
+      console.log(chalk.yellow('\nℹ️  You can add your Cerebras API key later with:'));
+      console.log(chalk.gray('   redoc config set cerebrasApiKey <key>'));
+      console.log(chalk.gray('\n   Or set env var: CEREBRAS_API_KEY\n'));
+    }
+  };
+
+  const configureOllama = async () => {
+    const { url } = await inquirer.prompt([{
+      type: 'input',
+      name: 'url',
+      message: 'Ollama URL:',
+      default: 'http://localhost:11434',
+      validate: (input) => input.trim().length > 0 || 'Ollama URL is required'
+    }]);
+    const { model } = await inquirer.prompt([{
+      type: 'input',
+      name: 'model',
+      message: 'Ollama model name (must exist in `ollama list`):',
+      default: 'llama3.1',
+      validate: (input) => input.trim().length > 0 || 'Model name is required'
+    }]);
+    ollamaUrl = url;
+    ollamaModel = model;
+  };
+
+  // Multi-provider setup: pick which providers to configure now.
+  // Selecting a provider triggers its configuration prompts (so we can write credentials to config).
+  const { providersToConfigure } = await inquirer.prompt([
+    {
+      type: 'checkbox',
+      name: 'providersToConfigure',
+      message: 'Select providers to configure now (for fallback and per-task selection):',
+      choices: [
+        { name: 'Groq (API key)', value: 'groq' },
+        { name: 'Gemini (Google API key)', value: 'gemini' },
+        { name: 'Cerebras (API key)', value: 'cerebras' },
+        { name: 'Ollama (local)', value: 'ollama' }
+      ],
+      default: [aiProvider],
       validate: (input) => {
-        if (input.trim().length === 0) {
-          return 'API key is required';
-        }
-        if (!GroqManager.validateApiKey(input)) {
-          return 'Invalid Groq API key format (should start with gsk_)';
-        }
+        if (!Array.isArray(input) || input.length === 0) return 'Select at least one provider';
+        if (!input.includes(aiProvider)) return 'Your default provider must be included';
         return true;
       }
+    }
+  ]);
+
+  const selectedProviders = (Array.isArray(providersToConfigure) ? providersToConfigure : []) as ProviderId[];
+  for (const p of selectedProviders) {
+    if (p === 'groq') await configureGroq();
+    if (p === 'gemini') await configureGemini();
+    if (p === 'cerebras') await configureCerebras();
+    if (p === 'ollama') await configureOllama();
+  }
+
+  // Build list of configured providers (only those with credentials/connection info)
+  const configuredProviders = uniq([
+    groqApiKey ? ('groq' as const) : null,
+    geminiApiKey ? ('gemini' as const) : null,
+    cerebrasApiKey ? ('cerebras' as const) : null,
+    (ollamaUrl && ollamaModel) ? ('ollama' as const) : null
+  ].filter(Boolean) as ProviderId[]);
+
+  // Let user select + order fallback chain based on configured providers
+  let providerOrder: ProviderId[] | undefined;
+  if (configuredProviders.length > 0) {
+    const { selectedProviders } = await inquirer.prompt([{
+      type: 'checkbox',
+      name: 'selectedProviders',
+      message: 'Select providers for fallback (only configured providers are shown):',
+      choices: configuredProviders.map(p => ({ name: p, value: p })),
+      default: configuredProviders,
+      validate: (input) => (Array.isArray(input) && input.length > 0) || 'Select at least one provider'
     }]);
 
-    groqApiKey = apiKey;
-  } else {
-    console.log(chalk.yellow('\nℹ️  You can add your Groq API key later with:'));
-    console.log(chalk.gray('   redoc config set groqApiKey <key>'));
-    console.log(chalk.gray('\n   Get your key at: https://console.groq.com\n'));
+    const set = (Array.isArray(selectedProviders) ? selectedProviders : []) as ProviderId[];
+
+    if (set.length === 1) {
+      providerOrder = set;
+    } else {
+      const remaining = [...set];
+      const ordered: ProviderId[] = [];
+
+      for (let i = 0; i < set.length; i++) {
+        const { pick } = await inquirer.prompt([{
+          type: 'list',
+          name: 'pick',
+          message: `Pick fallback provider #${i + 1}:`,
+          choices: remaining,
+          default: remaining.includes(aiProvider as ProviderId) ? (aiProvider as ProviderId) : remaining[0]
+        }]);
+
+        const chosen = pick as ProviderId;
+        ordered.push(chosen);
+        const idx = remaining.indexOf(chosen);
+        if (idx !== -1) remaining.splice(idx, 1);
+      }
+
+      providerOrder = ordered;
+    }
   }
+
+  // Per-task provider selection (defaults to first in providerOrder, otherwise chosen aiProvider)
+  const providerChoices = (providerOrder && providerOrder.length > 0) ? providerOrder : ([aiProvider] as ProviderId[]);
+  const defaultTaskProvider = providerChoices[0] as ProviderId;
+
+  const { analysisProvider, contentProvider, diagramsProvider } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'analysisProvider',
+      message: 'Provider for planning/analysis:',
+      choices: providerChoices,
+      default: defaultTaskProvider
+    },
+    {
+      type: 'list',
+      name: 'contentProvider',
+      message: 'Provider for content generation:',
+      choices: providerChoices,
+      default: defaultTaskProvider
+    },
+    {
+      type: 'list',
+      name: 'diagramsProvider',
+      message: 'Provider for diagram generation:',
+      choices: providerChoices,
+      default: defaultTaskProvider
+    }
+  ]);
+
+  // Generation settings
+  const { parallel } = await inquirer.prompt([{
+    type: 'confirm',
+    name: 'parallel',
+    message: 'Enable parallel generation (content/diagram/table at the same time)?',
+    default: false
+  }]);
 
   // Ask about editor preference
   const { editorChoice } = await inquirer.prompt([{
@@ -247,13 +446,13 @@ export async function initCommand(): Promise<void> {
     await ConfigManager.createInitialConfig(
       projectRoot,
       projectName,
-      submodulePath,
+      docsPath,
       groqApiKey
     );
 
     // Add editor preference and template path
     const configManager = new ConfigManager(projectRoot);
-    const updates: Record<string, string> = {};
+    const updates: Partial<RedocConfig> = {};
 
     if (editorChoice) {
       updates.editor = editorChoice;
@@ -262,6 +461,22 @@ export async function initCommand(): Promise<void> {
     if (templatePath) {
       updates.templatePath = templatePath;
     }
+
+    updates.aiProvider = aiProvider;
+    updates.generation = {
+      parallel: Boolean(parallel),
+      providerOrder,
+      providers: {
+        analysis: analysisProvider,
+        content: contentProvider,
+        diagrams: diagramsProvider
+      }
+    };
+
+    if (geminiApiKey) updates.geminiApiKey = geminiApiKey;
+    if (cerebrasApiKey) updates.cerebrasApiKey = cerebrasApiKey;
+    if (ollamaUrl) updates.ollamaUrl = ollamaUrl;
+    if (ollamaModel) updates.ollamaModel = ollamaModel;
 
     if (Object.keys(updates).length > 0) {
       await configManager.update(updates);

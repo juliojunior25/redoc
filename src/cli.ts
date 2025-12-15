@@ -4,12 +4,15 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { initCommand } from './commands/init.js';
 import { postCommitCommand } from './commands/post-commit.js';
+import { postPushCommand } from './commands/post-push.js';
 import { prePushCommand } from './commands/pre-push.js';
 import { statusCommand } from './commands/status.js';
 import { configCommand } from './commands/config.js';
 import { doctorCommand } from './commands/doctor.js';
 import { fixHooksCommand } from './commands/fix-hooks.js';
 import { templateCommand } from './commands/template.js';
+import { runCommandWithOptions } from './commands/run.js';
+import { searchCommand } from './commands/search.js';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -40,6 +43,22 @@ program
     }
   });
 
+// Run command (manual trigger)
+program
+  .command('run')
+  .description('Manual trigger (same as pre-push hook)')
+  .option('--skip', 'Skip this run (no questions)')
+  .option('--offline', 'Use default questions, no AI')
+  .option('--verbose', 'Show extra debug output')
+  .action(async (options) => {
+    try {
+      await runCommandWithOptions(options);
+    } catch (error) {
+      console.error(chalk.red('Error:'), error);
+      process.exit(1);
+    }
+  });
+
 // Post-commit hook
 program
   .command('post-commit')
@@ -48,13 +67,32 @@ program
     await postCommitCommand();
   });
 
+// Post-push (manual) - generates final report from captured commits
+program
+  .command('post-push')
+  .description('Generate a final report from captured commits (manual workflow)')
+  .option('--skip', 'Skip this run (no questions)')
+  .option('--offline', 'Use default questions, no AI')
+  .option('--verbose', 'Show extra debug output')
+  .action(async (options) => {
+    try {
+      await postPushCommand(options);
+    } catch (error) {
+      console.error(chalk.red('Error:'), error);
+      process.exit(1);
+    }
+  });
+
 // Pre-push hook
 program
   .command('pre-push')
   .description('Pre-push hook - interactive brain dump session')
-  .action(async () => {
+  .option('--skip', 'Skip this push (no questions)')
+  .option('--offline', 'Use default questions, no AI')
+  .option('--verbose', 'Show extra debug output')
+  .action(async (options) => {
     try {
-      await prePushCommand();
+      await prePushCommand(options);
     } catch (error) {
       console.error(chalk.red('Error:'), error);
       process.exit(1);
@@ -75,6 +113,19 @@ program
   .description('Manage ReDoc configuration')
   .action(async (action, key, value) => {
     await configCommand(action, key, value);
+  });
+
+// Search command
+program
+  .command('search <query>')
+  .description('Search for text in ReDoc docs')
+  .action(async (query) => {
+    try {
+      await searchCommand(query);
+    } catch (error) {
+      console.error(chalk.red('Error:'), error);
+      process.exit(1);
+    }
   });
 
 // Doctor command
@@ -125,6 +176,8 @@ program.on('--help', () => {
   console.log('  $ redoc config                        Interactive config menu');
   console.log('  $ redoc config show                   Show configuration');
   console.log('  $ redoc config set groqApiKey <key>   Set Groq API key');
+  console.log('  $ redoc run                           Manual brain dump (like pre-push)');
+  console.log('  $ redoc search <query>                Search in generated docs');
   console.log('  $ redoc pre-push                      Manual brain dump');
   console.log('  $ redoc template                      Edit documentation template');
   console.log('  $ redoc doctor                        Diagnose hook issues');

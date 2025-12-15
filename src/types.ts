@@ -2,15 +2,51 @@
  * Main configuration for ReDoc
  */
 export interface RedocConfig {
-  submodulePath: string;
   projectName: string;
+
+  /**
+   * PRD schema: where generated docs are stored (relative to repo root by default)
+   * Example: ".redoc"
+   */
+  docsPath?: string;
+  versionDocs?: boolean;
+  language?: 'en' | 'pt-BR' | 'es';
+
+  /**
+   * AI provider configuration
+   */
+  aiProvider?: 'groq' | 'gemini' | 'cerebras' | 'ollama';
   groqApiKey?: string;
-  currentBranch?: string;
-  aiProvider?: 'groq' | 'openai';
-  openaiApiKey?: string;
+  geminiApiKey?: string;
+  cerebrasApiKey?: string;
+  ollamaUrl?: string;
+  ollamaModel?: string;
+
+  generation?: {
+    parallel?: boolean;
+    /**
+     * Optional ordered fallback list of providers to try (highest priority first).
+     * If unset, the runtime uses the default fallback strategy.
+     */
+    providerOrder?: Array<'groq' | 'gemini' | 'cerebras' | 'ollama'>;
+    providers?: {
+      analysis?: 'groq' | 'gemini' | 'cerebras' | 'ollama';
+      content?: 'groq' | 'gemini' | 'cerebras' | 'ollama';
+      diagrams?: 'groq' | 'gemini' | 'cerebras' | 'ollama';
+    };
+  };
+
   editor?: string;
   templatePath?: string;  // Path to custom template file (.redoc-template.md)
   redactSecrets?: boolean; // Redact secrets from diffs before sending to AI (default: true)
+
+  /**
+   * Legacy (pre-PRD) config key. Kept for backward compatibility.
+   * Prefer docsPath.
+   */
+  submodulePath?: string;
+
+  currentBranch?: string;
 }
 
 /**

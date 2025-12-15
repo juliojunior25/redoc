@@ -1,52 +1,44 @@
-import chalk from 'chalk';
-import { GitManager } from '../utils/git.js';
+import * as path from 'path';
+import * as fs from 'fs/promises';
 import { ConfigManager } from '../utils/config.js';
-import { CommitVersion } from '../types.js';
+import { GitManager } from '../utils/git.js';
 
 /**
- * Post-commit hook - captures commit information
+ * Post-commit hook.
+ *
+ * Captures commit diffs into a local staging area so a final report can be
+ * generated later (e.g. via `redoc post-push`).
+ *
+ * Important: this hook must never block commits; failures are swallowed.
  */
 export async function postCommitCommand(): Promise<void> {
   try {
     const configManager = new ConfigManager();
-    const config = await configManager.load();
+    const config = await configManager.load().catch(() => null);
+    if (!config) return;
 
-    const gitManager = new GitManager();
-    const branch = await gitManager.getCurrentBranch();
+    const docsRoot = configManager.resolveDocsPath(config);
+    const captureRoot = path.join(docsRoot, '.commits');
+    await fs.mkdir(captureRoot, { recursive: true });
 
-    // Get last commit info
-    const commitInfo = await gitManager.getLastCommitInfo();
+    const git = new GitManager();
+    const branch = await git.getCurrentBranch();
 
-    // Get diff for this commit
-    const diff = await gitManager.getDiffForCommit(commitInfo.hash);
+    // Create a new version entry under the capture folder
+    const nextVersion = await git.getNextVersionNumber(captureRoot, branch);
+    const last = await git.getLastCommitInfo();
+    const diff = await git.getDiffForCommit(last.hash);
 
-    // Get next version number
-    const nextVersion = await gitManager.getNextVersionNumber(
-      config.submodulePath,
-      branch
-    );
-
-    // Create version object
-    const version: CommitVersion = {
+    await git.createVersionFile(captureRoot, branch, {
       version: nextVersion,
-      timestamp: commitInfo.date,
-      commit: commitInfo.hash,
-      message: commitInfo.message,
+      timestamp: new Date().toISOString(),
+      commit: last.hash,
+      message: last.message,
       diffs: diff,
-      files: commitInfo.files
-    };
-
-    // Save version file
-    await gitManager.createVersionFile(
-      config.submodulePath,
-      branch,
-      version
-    );
-
-    console.log(chalk.green(`✓ Captured commit ${commitInfo.hash.substring(0, 7)} as version ${nextVersion}`));
-
-  } catch (error) {
-    // Silent fail for hooks - log to file instead
-    console.error('ReDoc post-commit error:', error);
+      files: last.files
+    });
+  } catch {
+    // Never fail the user's commit
+    return;
   }
 }

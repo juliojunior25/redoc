@@ -9,6 +9,13 @@ export interface HooksConfig {
   huskyVersion?: string;
 }
 
+export interface PushContext {
+  branch: string;
+  commits: Array<{ hash: string; message: string }>;
+  files: string[];
+  diff: string;
+}
+
 /**
  * Manages all Git operations for ReDoc
  */
@@ -27,6 +34,47 @@ export class GitManager {
   async getCurrentBranch(): Promise<string> {
     const status = await this.git.status();
     return status.current || 'main';
+  }
+
+  /**
+   * Extract push-time context: unpushed commits, changed files, and combined diff.
+   * Falls back to the last commit if upstream is not configured.
+   */
+  async getPushContext(): Promise<PushContext> {
+    const branch = await this.getCurrentBranch();
+
+    let range = '@{u}..HEAD';
+    try {
+      await this.git.raw(['rev-parse', '--abbrev-ref', '@{u}']);
+    } catch {
+      // No upstream configured: fall back to last commit.
+      range = 'HEAD~1..HEAD';
+      try {
+        await this.git.raw(['rev-parse', 'HEAD~1']);
+      } catch {
+        range = 'HEAD';
+      }
+    }
+
+    const rawCommits = await this.git.raw(['log', '--pretty=%H\t%s', range, '--']);
+    const commits = rawCommits
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean)
+      .map(line => {
+        const [hash, ...rest] = line.split('\t');
+        return { hash, message: rest.join('\t') };
+      });
+
+    const rawFiles = await this.git.raw(['diff', '--name-only', range, '--']);
+    const files = rawFiles
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean);
+
+    const diff = await this.git.raw(['diff', '--no-color', range, '--']);
+
+    return { branch, commits, files, diff };
   }
 
   /**

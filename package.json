@@ -1,6 +1,6 @@
 {
   "name": "@redoc/cli",
-  "version": "1.1.4",
+  "version": "1.1.6",
   "description": "CLI tool to capture developer brain dumps via git hooks and AI-generated questions",
   "type": "module",
   "main": "dist/index.js",

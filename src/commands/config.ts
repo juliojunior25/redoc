@@ -129,11 +129,25 @@ async function showConfig(configManager: ConfigManager): Promise<void> {
 
   console.log(chalk.blue.bold('\n⚙️  ReDoc Configuration\n'));
   console.log(chalk.gray('Project name:    ') + chalk.white(config.projectName));
-  console.log(chalk.gray('Submodule path:  ') + chalk.white(config.submodulePath));
+  console.log(chalk.gray('Docs path:       ') + chalk.white(config.docsPath || config.submodulePath || '.redoc'));
+  console.log(chalk.gray('Language:        ') + chalk.white(config.language || 'en'));
   console.log(chalk.gray('AI Provider:     ') + chalk.white(config.aiProvider || 'groq'));
+  if (config.generation?.providerOrder && config.generation.providerOrder.length > 0) {
+    console.log(chalk.gray('Provider order:  ') + chalk.white(config.generation.providerOrder.join(' → ')));
+  }
+  if (config.generation?.providers) {
+    const p = config.generation.providers;
+    console.log(chalk.gray('Providers:       ') + chalk.white(`analysis=${p.analysis || config.aiProvider || 'groq'}, content=${p.content || config.aiProvider || 'groq'}, diagrams=${p.diagrams || config.aiProvider || 'groq'}`));
+  }
   console.log(chalk.gray('Groq API key:    ') + chalk.white(
     config.groqApiKey ? `${config.groqApiKey.substring(0, 10)}...` : 'Not set'
   ));
+  if (config.geminiApiKey) {
+    console.log(chalk.gray('Gemini API key:  ') + chalk.white(`${config.geminiApiKey.substring(0, 6)}...`));
+  }
+  if (config.cerebrasApiKey) {
+    console.log(chalk.gray('Cerebras API key:') + chalk.white(`${config.cerebrasApiKey.substring(0, 6)}...`));
+  }
   console.log(chalk.gray('Editor:          ') + chalk.white(config.editor || 'System default'));
   console.log(chalk.gray('Redact secrets:  ') + chalk.white(config.redactSecrets === false ? 'No' : 'Yes'));
 
@@ -171,7 +185,20 @@ async function setConfigValue(
   value: string
 ): Promise<void> {
   // Validate key
-  const validKeys = ['projectName', 'groqApiKey', 'aiProvider', 'openaiApiKey', 'editor', 'redactSecrets'];
+  const validKeys = [
+    'projectName',
+    'docsPath',
+    'versionDocs',
+    'language',
+    'aiProvider',
+    'groqApiKey',
+    'geminiApiKey',
+    'cerebrasApiKey',
+    'ollamaUrl',
+    'ollamaModel',
+    'editor',
+    'redactSecrets'
+  ];
 
   if (!validKeys.includes(key)) {
     console.log(chalk.red(`Error: Invalid configuration key "${key}"`));
@@ -184,6 +211,26 @@ async function setConfigValue(
     console.log(chalk.red('Error: Invalid Groq API key format'));
     console.log(chalk.gray('API key should start with "gsk_"'));
     process.exit(1);
+  }
+
+  if (key === 'language') {
+    if (!['en', 'pt-BR', 'es'].includes(value)) {
+      console.log(chalk.red('Error: language must be one of: en, pt-BR, es'));
+      process.exit(1);
+    }
+  }
+
+  if (key === 'versionDocs') {
+    const normalized = value.trim().toLowerCase();
+    const boolValue = normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'y';
+    const boolValueFalse = normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'n';
+    if (!boolValue && !boolValueFalse) {
+      console.log(chalk.red('Error: versionDocs must be a boolean (true/false)'));
+      process.exit(1);
+    }
+    await configManager.update({ versionDocs: boolValue });
+    console.log(chalk.green(`✓ Configuration updated: ${key} = ${boolValue}`));
+    return;
   }
 
   // Parse booleans

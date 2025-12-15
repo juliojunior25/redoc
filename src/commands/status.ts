@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { GitManager } from '../utils/git.js';
 import { ConfigManager } from '../utils/config.js';
 import { DocumentGenerator } from '../utils/document.js';
+import * as path from 'path';
 
 /**
  * Show ReDoc status - pending commits and existing docs
@@ -12,39 +13,36 @@ export async function statusCommand(): Promise<void> {
   try {
     const configManager = new ConfigManager();
     const config = await configManager.load();
+    const docsPath = configManager.resolveDocsPath(config);
 
     const gitManager = new GitManager();
     const branch = await gitManager.getCurrentBranch();
 
     console.log(chalk.blue('Configuration:'));
     console.log(chalk.gray(`  Project: ${config.projectName}`));
-    console.log(chalk.gray(`  Submodule: ${config.submodulePath}`));
+    console.log(chalk.gray(`  Docs path: ${config.docsPath || config.submodulePath || '.redoc'}`));
     console.log(chalk.gray(`  Current branch: ${branch}`));
     console.log(chalk.gray(`  Groq API: ${config.groqApiKey ? '✓ Configured' : '✗ Not configured'}\n`));
 
-    // Get pending versions
-    const versions = await gitManager.getBranchVersions(
-      config.submodulePath,
-      branch
-    );
+    // Canonical flow: show captured commits pending a final report
+    const captureRoot = path.join(docsPath, '.commits');
+    const versions = await gitManager.getBranchVersions(captureRoot, branch);
 
     if (versions.length > 0) {
-      console.log(chalk.yellow(`⏳ Pending commits (${versions.length}):\n`));
+      console.log(chalk.yellow(`⏳ Captured commits pending report (${versions.length}):\n`));
       versions.forEach(v => {
         const shortHash = v.commit.substring(0, 7);
-        const date = new Date(v.timestamp).toLocaleDateString();
-        console.log(chalk.gray(`  ${v.version}. ${shortHash} - ${v.message}`));
-        console.log(chalk.gray(`     ${date} • ${v.files.length} file(s) changed\n`));
+        console.log(chalk.gray(`  • ${shortHash} - ${v.message} (${v.version})`));
       });
-
-      console.log(chalk.blue('💡 Run "redoc pre-push" to create brain dump for these commits.\n'));
+      console.log();
+      console.log(chalk.blue('💡 Run "redoc pre-push" (or "redoc run") to generate the final report.\n'));
     } else {
-      console.log(chalk.green('✓ No pending commits on this branch.\n'));
+      console.log(chalk.green('✓ No captured commits pending a report on this branch.\n'));
     }
 
     // List existing documentation
     const documentGenerator = new DocumentGenerator();
-    const docs = await documentGenerator.listDocuments(config.submodulePath);
+    const docs = await documentGenerator.listDocuments(docsPath);
 
     if (docs.length > 0) {
       console.log(chalk.blue(`📄 Existing documentation (${docs.length}):\n`));

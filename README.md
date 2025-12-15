@@ -1,149 +1,184 @@
 # ReDoc - Developer Brain Dump Tool
 
-Sistema CLI em TypeScript que captura "brain dumps" de desenvolvedores sobre features através de git hooks e perguntas geradas por IA.
+A Bun + TypeScript CLI that captures short developer “brain dumps” via git hooks and AI-generated questions.
 
-## 🎯 Filosofia
+## 🎯 Philosophy
 
-**Snapshot mental de 5 minutos, não manual técnico de 30 minutos.**
+**A 5-minute mental snapshot, not a 30-minute manual.**
 
-O ReDoc intercepta seus commits e gera perguntas contextuais usando IA (Groq/LLaMA 3.3 70B) para capturar seu conhecimento enquanto está fresco na memória.
+ReDoc asks a few context-aware questions (based on your pending push diff) to capture decisions, rationale, tradeoffs, and gotchas while they’re still fresh.
 
-## 📦 Instalação
+## 📦 Installation
 
-**Este projeto requer Bun.** [Instale o Bun](https://bun.sh) primeiro:
+**This project requires Bun.** Install it first: https://bun.sh
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
 ```
 
-### Instalação Global (via npm - em breve)
+### Global install (recommended: clone + `bun link`)
+
+The simplest way today is to clone this repository and install the `redoc` command globally via `bun link`.
 
 ```bash
-npm install -g @redoc/cli
-```
-
-### Desenvolvimento Local
-
-```bash
-# Clonar e configurar
-git clone <repo>
+# 1) Clone
+git clone <REPO_URL>
 cd redoc
+
+# 2) Install deps and build
 bun install
 bun run build
+
+# 3) Install globally (adds `redoc` to Bun's global bin path)
 bun link
 
-# Testar
+# 4) Verify
 redoc --version
 ```
 
-## 🚀 Quick Start
-
-### 1. Inicializar no Projeto
+If `redoc` is not found, make sure Bun is in your PATH:
 
 ```bash
-cd seu-projeto
+export PATH="$HOME/.bun/bin:$PATH"
+```
+
+### Global install (npm)
+
+Not published to npm yet. This section will be updated when it is.
+
+## 🚀 Quick Start
+
+### 1) Initialize in your project
+
+```bash
+cd your-project
 redoc init
 ```
 
-O comando irá:
-- Criar um submodule para armazenar documentação
-- Configurar git hooks (post-commit, pre-push)
-- Pedir sua Groq API key (opcional, mas recomendado)
+This will:
+- Set where docs will be stored (`docsPath`, default: `.redoc/`)
+- Configure the AI provider (Groq/Gemini/Cerebras/Ollama) and keys/URL when applicable
+- Install git hooks (pre-push)
 
-### 2. Fazer Commits Normalmente
+### 2) Commit normally
 
 ```bash
 git add .
-git commit -m "feat: nova funcionalidade X"
+git commit -m "feat: add feature X"
 ```
 
-O hook `post-commit` captura automaticamente o diff e metadados.
-
-### 3. Brain Dump no Push
+### 3) Brain dump on push
 
 ```bash
 git push origin feature-branch
 ```
 
 O hook `pre-push` irá:
-1. Mostrar commits pendentes
-2. Gerar 4 perguntas contextuais sobre seu código
-3. Abrir editor para você responder
-4. Gerar documento Markdown de 1 página
-5. Commitar no submodule
+1. Detect unpushed commits
+2. Generate 2–4 context-aware questions (or default questions with `--offline`)
+3. Open your editor so you can answer
+4. Plan and generate a Markdown document
+5. Save it to `.redoc/<branch>/<version>.md` (e.g. `.redoc/main/1.0.md`)
 
-## 📝 Comandos
+## 📝 Commands
 
 ### `redoc init`
-Inicializa ReDoc no projeto atual.
+Initialize ReDoc in the current project.
 
 ### `redoc status`
-Mostra commits pendentes e documentação existente.
+Show unpushed commits and documentation status.
 
 ### `redoc config`
-Gerencia configuração (API keys, projeto, etc).
+Manage configuration (API keys, project name, etc).
 
 ```bash
-redoc config show                        # Ver configuração
-redoc config set groqApiKey gsk_xxx      # Definir API key
-redoc config set projectName meu-app     # Definir nome do projeto
+redoc config show                        # Show config
+redoc config set groqApiKey gsk_xxx      # Set Groq API key
+redoc config set geminiApiKey xxx        # Set Gemini API key
+redoc config set cerebrasApiKey xxx      # Set Cerebras API key
+redoc config set ollamaUrl http://localhost:11434
+redoc config set ollamaModel llama3.1
+redoc config set projectName my-app      # Set project name
 ```
 
 ### `redoc pre-push`
-Executa brain dump manualmente (sem fazer push).
+Run the brain dump flow manually (without pushing).
 
-## 🔑 Groq API Key
-
-Obtenha gratuitamente em: [https://console.groq.com](https://console.groq.com)
-
-Configure via:
 ```bash
-redoc config set groqApiKey gsk_sua_chave_aqui
+redoc pre-push --offline
+redoc pre-push --verbose
 ```
 
-Sem API key, o ReDoc usa perguntas padrão (menos contextuais).
+### `redoc run`
+Same flow as `pre-push`, as a manual command.
 
-## 📁 Estrutura Gerada
+```bash
+redoc run
+```
+
+### `redoc search`
+Search text inside generated docs.
+
+```bash
+redoc search "jwt"
+```
+
+## 🔑 AI keys
+
+Groq:
+
+Get it at: https://console.groq.com
+
+Configure with:
+```bash
+redoc config set groqApiKey gsk_your_key_here
+```
+
+Without a configured provider/key, you can run offline:
+
+```bash
+redoc pre-push --offline
+```
+
+## 📁 Generated structure
 
 ```
-seu-projeto/
+your-project/
 ├── .redocrc.json           # Configuração do ReDoc
-├── redocs/                 # Submodule (ignorado no git principal)
-│   ├── feature-branch/     # Diretório por branch
-│   │   ├── 1.0.md         # Versões individuais dos commits
-│   │   ├── 2.0.md
-│   │   └── 3.0.md
-│   └── docs/              # Documentação final (brain dumps)
-│       ├── feature-branch-2024-01-15.md
-│       └── main-2024-01-10.md
+└── .redoc/                 # default docsPath (local folder)
+    ├── feature-branch/     # per-branch folder
+    │   ├── 1.0.md          # incremental versions
+    │   └── 2.0.md
+    └── main/
+        └── 1.0.md
 ```
 
-## 📄 Exemplo de Documento Gerado
+## 📄 Example generated document
 
 ```markdown
-# Nova Autenticação JWT
+# New JWT Authentication
 
 **Branch:** auth-feature | **Date:** 01/15/2024 | **Commits:** 3
 
 ---
 
-## 🎯 O Que e Por Quê
+## 🎯 What and why
 
-Implementei autenticação JWT para substituir sessions.
-O motivo foi performance - sessions estavam causando overhead no Redis...
+I implemented JWT auth to replace sessions.
+The main reason was performance — sessions were causing overhead in Redis...
 
-## 🧠 Decisões Importantes
+## 🧠 Key decisions
 
-Escolhi HS256 em vez de RS256 porque não precisamos de chaves públicas...
+I chose HS256 over RS256 because we don’t need public keys...
 
-## ⚠️ Pontos de Atenção
+## ⚠️ Gotchas
 
-Cuidado com o token refresh - implementei rotação mas se o usuário...
+Be careful with token refresh — I implemented rotation, but if the user...
 
-## 📝 Contexto Adicional
+## 📝 Additional context
 
-TODO: Migrar tokens antigos em produção
-Link útil: https://jwt.io/introduction
+TODO: migrate old tokens in production
+Useful link: https://jwt.io/introduction
 
 ---
 
@@ -152,43 +187,43 @@ Link útil: https://jwt.io/introduction
 
 ## 🛠️ Desenvolvimento
 
-**Este projeto usa Bun exclusivamente.** Não é compatível com Node.js/npm/yarn para desenvolvimento.
+**This project uses Bun only.** It’s not intended for Node.js/npm/yarn-based development.
 
-### Pré-requisito
+### Prerequisites
 
 ```bash
-# Instalar Bun
+# Install Bun
 curl -fsSL https://bun.sh/install | bash
 
-# Adicionar ao PATH (já é feito automaticamente)
+# Ensure Bun is in PATH (often done automatically)
 export PATH="$HOME/.bun/bin:$PATH"
 
-# Verificar
+# Verify
 bun --version
 ```
 
 ### Build
 
 ```bash
-# Build para produção (bundle único de ~1.6MB)
+# Production build (single bundled CLI)
 bun run build
 ```
 
 > **Nota:** Build super rápido (~1s)! Usa o bundler nativo do Bun para criar um único arquivo executável.
 
-### Watch Mode (Desenvolvimento)
+### Watch mode (development)
 
 ```bash
-# Desenvolvimento com hot reload (executa TypeScript diretamente)
+# Development with hot reload (runs TypeScript directly)
 bun run dev
 ```
 
 > **Dica:** Bun executa TypeScript nativamente, sem compilação! Hot reload instantâneo.
 
-### Testes
+### Tests
 
 ```bash
-# Rodar todos os testes
+# Run all tests
 bun test
 
 # Watch mode
@@ -198,27 +233,37 @@ bun test --watch
 ### Testar Localmente
 
 ```bash
-# Build e link
+# Build and link
 bun run build && bun link
 
-# Criar projeto teste
+# Create a test project
 mkdir ~/test-redoc && cd ~/test-redoc
 git init
 
-# Inicializar ReDoc
+# Initialize ReDoc
 redoc init
 ```
 
 ## 🔧 Configuração
 
-O arquivo `.redocrc.json` contém:
+The `.redocrc.json` file contains:
 
 ```json
 {
-  "projectName": "meu-projeto",
-  "submodulePath": "/caminho/para/redocs",
+  "projectName": "my-project",
+  "docsPath": ".redoc",
+  "versionDocs": true,
+  "language": "en",
+  "aiProvider": "groq",
   "groqApiKey": "gsk_...",
-  "aiProvider": "groq"
+  "generation": {
+    "parallel": false,
+    "providers": {
+      "analysis": "groq",
+      "content": "groq",
+      "diagrams": "groq"
+    }
+  }
 }
 ```
 
@@ -236,16 +281,18 @@ src/
 │   └── config.ts
 ├── utils/                 # Utilitários principais
 │   ├── git.ts            # GitManager
-│   ├── groq.ts           # GroqManager (IA)
 │   ├── config.ts         # ConfigManager
 │   └── document.ts       # DocumentGenerator
+├── ai/
+│   ├── orchestrator.ts    # IA multi-provider + planner
+│   └── providers/         # Groq/Gemini/Cerebras/Ollama
 └── templates/
     └── feature-report.ts  # Template Markdown
 ```
 
-## 🤝 Contribuindo
+## 🤝 Contributing
 
-Contribuições são bem-vindas! Veja o arquivo de desenvolvimento para mais detalhes.
+Contributions are welcome! See the development docs for more details.
 
 ## 📄 Licença
 
@@ -253,18 +300,18 @@ MIT
 
 ## 🙋 FAQ
 
-**Q: O ReDoc funciona sem API key?**
-Sim! Usa perguntas padrão menos contextuais.
+**Q: Does ReDoc work without an API key?**
+Yes. Use `--offline` to skip AI.
 
-**Q: Os commits ficam salvos localmente?**
-Sim, no submodule `redocs/` que é ignorado pelo git principal.
+**Q: Are the docs stored locally?**
+Yes, under `docsPath` (default: `.redoc/`) inside your repository.
 
-**Q: Posso usar outro provider de IA?**
-Atualmente só Groq, mas OpenAI está planejado.
+**Q: Can I use a different AI provider?**
+Yes: Groq, Gemini, Cerebras, or Ollama.
 
-**Q: O que acontece se eu pular o brain dump?**
-Nada! Os commits ficam pendentes até o próximo push.
+**Q: What happens if I skip the brain dump?**
+Nothing — your unpushed commits remain until the next run/push.
 
 ---
 
-**Feito com ❤️ para desenvolvedores que odeiam escrever documentação.**
+Built for developers who hate writing docs.
