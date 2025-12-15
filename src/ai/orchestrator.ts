@@ -34,7 +34,31 @@ export async function generateQuestions(params: {
   const messages: AIChatMessage[] = [
     {
       role: 'system',
-      content: `You are helping document a code change. Generate 2-4 questions to understand the developer's reasoning.\n\nRules:\n- Ask about WHY, not WHAT (code shows what).\n- Be specific to THIS change (use filenames/functions from the diff).\n- 2 questions for small changes, 3-4 for larger changes.\n- Questions answerable in 1-3 sentences.\n- Output language: ${languageLabel(lang)}.\n\nReturn ONLY JSON: { "questions": ["...", "..."] }`
+      content: `You are a senior engineer conducting a BRAIN DUMP session to capture tacit knowledge before it's lost.
+
+Your goal: Extract the knowledge that EXISTS ONLY IN THE DEVELOPER'S HEAD - context, rationale, gotchas, and lessons that won't be obvious from reading the code later.
+
+Generate 3-5 probing questions based on the diff. Each question should:
+1. TARGET HIDDEN KNOWLEDGE: Ask about things NOT visible in the code (why this approach, what was tried first, what almost broke, what's fragile)
+2. BE SPECIFIC: Reference actual files/functions from the diff
+3. PREVENT KNOWLEDGE LOSS: Focus on what a future maintainer would struggle with
+4. ENCOURAGE STORYTELLING: Invite the developer to explain the journey, not just the destination
+
+Question types to include:
+- DECISION: "Why X instead of Y?" / "What made you choose this approach?"
+- CONTEXT: "What triggered this change?" / "What was failing/breaking?"
+- GOTCHAS: "What's tricky here?" / "What would break if someone changes X?"
+- FUTURE: "What should someone know before touching this?" / "What's the next step?"
+- LESSONS: "What did you learn?" / "What would you do differently?"
+
+DO NOT ask:
+- Things obvious from reading the code
+- Generic questions like "Can you explain this change?"
+- Yes/no questions
+
+Output language: ${languageLabel(lang)}.
+
+Return ONLY JSON: { "questions": ["...", "..."] }`
     },
     {
       role: 'user',
@@ -67,23 +91,26 @@ export async function generateQuestions(params: {
 
 function offlineQuestions(diff: string, lang: 'en' | 'pt-BR' | 'es'): string[] {
   const isSmall = diff.split(/\r?\n/).filter(l => l.startsWith('+') || l.startsWith('-')).length < 80;
-  const count = isSmall ? 2 : 3;
+  const count = isSmall ? 3 : 4;
 
   const bank: Record<typeof lang, string[]> = {
     en: [
-      'What problem does this change solve, and why now?',
-      'What alternatives did you consider, and why did you choose this approach?',
-      'What edge cases or risks should a future maintainer watch for?'
+      'What was the trigger for this change? What problem were you actually solving?',
+      'What approaches did you try or consider before landing on this solution?',
+      'What\'s the trickiest part of this code that someone might break without realizing?',
+      'If you had more time, what would you improve or do differently here?'
     ],
     'pt-BR': [
-      'Qual problema essa mudança resolve, e por que agora?',
-      'Quais alternativas você considerou, e por que escolheu essa abordagem?',
-      'Quais edge cases/risco um futuro mantenedor precisa ficar atento?'
+      'O que motivou essa mudança? Qual problema você estava realmente resolvendo?',
+      'Quais abordagens você tentou ou considerou antes de chegar nessa solução?',
+      'Qual a parte mais traiçoeira desse código que alguém pode quebrar sem perceber?',
+      'Se tivesse mais tempo, o que você melhoraria ou faria diferente aqui?'
     ],
     es: [
-      '¿Qué problema resuelve este cambio, y por qué ahora?',
-      '¿Qué alternativas consideraste y por qué elegiste este enfoque?',
-      '¿Qué casos límite o riesgos debería vigilar alguien en el futuro?'
+      '¿Qué motivó este cambio? ¿Qué problema estabas resolviendo realmente?',
+      '¿Qué enfoques probaste o consideraste antes de llegar a esta solución?',
+      '¿Cuál es la parte más delicada de este código que alguien podría romper sin darse cuenta?',
+      'Si tuvieras más tiempo, ¿qué mejorarías o harías diferente aquí?'
     ]
   };
 
@@ -169,11 +196,42 @@ export async function generateMainContent(params: {
   const messages: AIChatMessage[] = [
     {
       role: 'system',
-      content: `Write concise documentation for this code change.\n\nRules:\n- Be concise.\n- Use developer's words when possible.\n- Don't invent information.\n- Output language: ${languageLabel(lang)}.\n\nReturn Markdown ONLY.`
+      content: `You are synthesizing a BRAIN DUMP into useful documentation for future maintainers.
+
+Your input: The developer's raw answers to probing questions about their change.
+
+Your output: A structured summary that PRESERVES THE DEVELOPER'S INSIGHTS while making them scannable.
+
+Rules:
+1. PRESERVE VOICE: Use the developer's own words and phrasing when they're clear
+2. DON'T INVENT: Never add information not in the answers
+3. HIGHLIGHT GOTCHAS: Surface warnings, edge cases, and "watch out for" items prominently
+4. CAPTURE DECISIONS: Clearly document what was chosen AND what was rejected (and why)
+5. MAKE ACTIONABLE: A future dev should know what to do (or not do) after reading this
+
+Structure to use:
+## TL;DR
+One paragraph max. The core insight a future maintainer needs.
+
+## The Context
+What triggered this? What was the problem?
+
+## The Approach
+What was done and WHY this approach over alternatives.
+
+## Watch Out
+Gotchas, edge cases, fragile areas, things that could break.
+
+## Future Notes
+(Only if relevant) Next steps, tech debt acknowledged, what would be improved with more time.
+
+Output language: ${languageLabel(lang)}.
+
+Return Markdown ONLY. Omit sections that have no relevant content from the answers.`
     },
     {
       role: 'user',
-      content: `Context:\n- Branch: ${params.ctx.branch}\n- Commits:\n${safe(params.config, params.ctx.commits.map(c => `${c.hash.substring(0, 7)} - ${c.message}`).join('\n'))}\n\nDeveloper Q&A:\n${safe(params.config, params.qa.map((p, i) => `Q${i + 1}: ${p.question}\nA: ${p.answer}`).join('\n\n'))}\n\nSections to write: ${params.plan.sections.join(', ')}\nComplexity: ${params.plan.complexity}\n\nWrite the sections in this exact order, each as a level-2 heading (##).`
+      content: `Context:\n- Branch: ${params.ctx.branch}\n- Commits:\n${safe(params.config, params.ctx.commits.map(c => `${c.hash.substring(0, 7)} - ${c.message}`).join('\n'))}\n- Files: ${safe(params.config, params.ctx.files.join(', '))}\n\nDeveloper Brain Dump:\n${safe(params.config, params.qa.map((p, i) => `Q${i + 1}: ${p.question}\nA: ${p.answer}`).join('\n\n'))}\n\nSynthesize this into structured documentation.`
     }
   ];
 

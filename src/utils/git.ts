@@ -29,6 +29,13 @@ export class GitManager {
   }
 
   /**
+   * Initialize a git repository in the current project root.
+   */
+  async initRepository(): Promise<void> {
+    await this.git.init();
+  }
+
+  /**
    * Get current branch name
    */
   async getCurrentBranch(): Promise<string> {
@@ -93,6 +100,16 @@ export class GitManager {
    * Detect hooks configuration (Husky vs native)
    */
   async detectHooksConfig(): Promise<HooksConfig> {
+    // Resolve repository root (important when running from a subfolder in a monorepo).
+    // `core.hooksPath` and Husky paths are relative to the repo root, not the current working directory.
+    let repoRoot = this.projectRoot;
+    try {
+      const top = (await this.git.raw(['rev-parse', '--show-toplevel'])).trim();
+      if (top) repoRoot = top;
+    } catch {
+      // Ignore; fall back to projectRoot
+    }
+
     // Check git config for core.hooksPath
     let configuredHooksPath: string | null = null;
     try {
@@ -103,7 +120,7 @@ export class GitManager {
     }
 
     // Check for Husky directory
-    const huskyPath = path.join(this.projectRoot, '.husky');
+    const huskyPath = path.join(repoRoot, '.husky');
     let hasHuskyDir = false;
     try {
       await fs.access(huskyPath);
@@ -118,14 +135,24 @@ export class GitManager {
     // Determine actual hooks path
     let hooksPath: string;
     if (configuredHooksPath) {
-      // Resolve relative path
+      // core.hooksPath is typically relative to the repo root (worktree)
       hooksPath = path.isAbsolute(configuredHooksPath)
         ? configuredHooksPath
-        : path.join(this.projectRoot, configuredHooksPath);
+        : path.join(repoRoot, configuredHooksPath);
     } else if (isHusky) {
       hooksPath = huskyPath;
     } else {
-      hooksPath = path.join(this.projectRoot, '.git', 'hooks');
+      // Default Git hooks directory.
+      // IMPORTANT: `.git` can be a FILE (worktrees/submodules). Do not assume `.git/hooks` exists.
+      // Use `git rev-parse --git-dir` to resolve the real git directory.
+      let gitDir = '.git';
+      try {
+        gitDir = (await this.git.raw(['rev-parse', '--git-dir'])).trim() || '.git';
+      } catch {
+        gitDir = '.git';
+      }
+      const gitDirAbs = path.isAbsolute(gitDir) ? gitDir : path.join(this.projectRoot, gitDir);
+      hooksPath = path.join(gitDirAbs, 'hooks');
     }
 
     return {

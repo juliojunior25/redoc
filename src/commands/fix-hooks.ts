@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import ora from 'ora';
+import inquirer from 'inquirer';
 import { GitManager } from '../utils/git.js';
 import { ConfigManager } from '../utils/config.js';
 
@@ -15,8 +16,33 @@ export async function fixHooksCommand(): Promise<void> {
   // Check if git repository
   const isGitRepo = await gitManager.isGitRepository();
   if (!isGitRepo) {
-    console.log(chalk.red('Error: Not a git repository.'));
-    process.exit(1);
+    console.log(chalk.yellow('No git repository detected in this folder.'));
+    const { doInit } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'doInit',
+      message: 'Initialize git here now (git init)?',
+      default: true
+    }]);
+
+    if (!doInit) {
+      console.log(chalk.red('Error: A git repository is required to install hooks.'));
+      process.exit(1);
+    }
+
+    const initSpinner = ora('Initializing git repository...').start();
+    try {
+      await gitManager.initRepository();
+      // Ensure .git/hooks directory exists right after init
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const gitHooksDir = path.join(process.cwd(), '.git', 'hooks');
+      await fs.mkdir(gitHooksDir, { recursive: true });
+      initSpinner.succeed('Git repository initialized');
+    } catch (e) {
+      initSpinner.fail('Failed to initialize git');
+      console.error(chalk.red(String(e)));
+      process.exit(1);
+    }
   }
 
   // Check if ReDoc is initialized
@@ -38,7 +64,7 @@ export async function fixHooksCommand(): Promise<void> {
   // Install hooks
   const spinner = ora('Installing hooks...').start();
   try {
-    await gitManager.installHooks();
+    await gitManager.installHooks(hooksConfig.hooksPath);
     spinner.succeed(`Hooks installed in ${hooksConfig.hooksPath}`);
   } catch (error) {
     spinner.fail('Failed to install hooks');

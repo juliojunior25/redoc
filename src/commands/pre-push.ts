@@ -112,11 +112,12 @@ export async function prePushCommand(options: { skip?: boolean; offline?: boolea
 
     // Generate questions
     const offline = Boolean(options.offline);
-    const apiSpinner = ora('Generating questions...').start();
+    const apiSpinner = ora('Generating brain dump questions...').start();
     const questionResult = offline
       ? { questions: [
-          'What problem does this change solve, and why now?',
-          'What alternatives did you consider, and why did you choose this approach?'
+          'What was the trigger for this change? What problem were you actually solving?',
+          'What approaches did you try or consider before landing on this solution?',
+          'What\'s the trickiest part of this code that someone might break without realizing?'
         ], provider: 'offline' as const }
       : await generateQuestions({
           config,
@@ -128,13 +129,20 @@ export async function prePushCommand(options: { skip?: boolean; offline?: boolea
           },
           preferredProvider: config.aiProvider
         });
-    apiSpinner.succeed(`Questions generated (${questionResult.questions.length})${options.verbose ? ` via ${questionResult.provider}` : ''}`);
+    apiSpinner.succeed(`Brain dump questions ready (${questionResult.questions.length})${options.verbose ? ` via ${questionResult.provider}` : ''}`);
 
     const questions = questionResult.questions;
 
-    console.log(chalk.blue.bold(`\n📝 Questions (${questions.length})\n`));
-    console.log(chalk.gray('Tip: You can paste Markdown, code blocks, Mermaid diagrams, and tables.'));
-    console.log(chalk.gray('Empty answer = skip the question.\n'));
+    console.log(chalk.blue.bold(`\n🧠 Brain Dump Session (${questions.length} questions)\n`));
+    console.log(chalk.gray('Goal: Capture knowledge that would be LOST if you left tomorrow.'));
+    console.log(chalk.gray('Think: decisions, gotchas, context, lessons learned.'));
+    console.log(chalk.gray(''));
+    console.log(chalk.gray('Tips:'));
+    console.log(chalk.gray('  • Be honest about shortcuts, hacks, and tech debt'));
+    console.log(chalk.gray('  • Mention what you tried that DIDN\'T work'));
+    console.log(chalk.gray('  • Warn about fragile areas or edge cases'));
+    console.log(chalk.gray('  • Empty answer = skip the question'));
+    console.log();
 
     const qa: QAPair[] = [];
 
