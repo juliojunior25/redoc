@@ -274,7 +274,7 @@ export async function prePushCommand(options: {
             shouldGenerateTable: false, 
             tableRationale: null, 
             tableType: null, 
-            sections: ['Summary', 'Notes'], 
+            keyInsights: [],
             complexity: 'minimal' as const, 
             skipGeneration: true, 
             skipReason: 'Offline mode' 
