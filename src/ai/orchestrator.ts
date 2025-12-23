@@ -131,9 +131,26 @@ export async function planDocument(params: {
   const messages: AIChatMessage[] = [
     {
       role: 'system',
-      content: `You are a documentation architect analyzing a code change to decide THE BEST way to document it.
+      content: `You are a documentation architect analyzing a code change to decide THE BEST way to document it and understand its impact.
 
-Your job: Analyze the DIFF and the developer's answers to decide what visual aids would GENUINELY help future maintainers understand this change.
+Your job:
+1. IDENTIFY INTENT: Categorize the change (feat, fix, refactor, chore, docs, perf, test, style).
+2. DEEP CONTEXT: Predict which other files in the project might be impacted by this change, even if they aren't in the diff (e.g., if a shared type changed, who uses it?).
+3. VISUAL AIDS: Decide what diagrams or tables would GENUINELY help future maintainers.
+
+## Intent Guidelines:
+- feat: New feature or functionality
+- fix: Bug fix
+- refactor: Code change that neither fixes a bug nor adds a feature
+- chore: Maintenance, dependency updates, configuration
+- perf: Performance improvement
+- test: Adding or correcting tests
+- docs: Documentation changes only
+
+## Deep Context Guidelines:
+- Look at the files in the diff.
+- If a core utility, type, or API changed, think about the downstream effects.
+- Provide a reason for each impacted file.
 
 ## When to generate a DIAGRAM:
 - New API endpoints or routes → flowchart showing the request flow
@@ -151,17 +168,17 @@ Your job: Analyze the DIFF and the developer's answers to decide what visual aid
 - Before/after comparison → comparison table
 - Feature flags or toggles → options table
 
-## Analysis approach:
-1. Look at the FILES changed - what type of change is this?
-2. Look at the DIFF - is there branching logic, new functions, config?
-3. Look at the ANSWERS - did dev mention alternatives, steps, options?
-
-Be PROACTIVE - if a diagram or table would help, generate it!
-
 Output language: ${languageLabel(lang)}.
 
 Return ONLY valid JSON:
 {
+  "intent": "feat"|"fix"|"refactor"|"chore"|"docs"|"perf"|"test"|"style"|"unknown",
+  "intentRationale": "Brief explanation of why this intent was chosen",
+  
+  "impactedFiles": [
+    { "file": "path/to/file.ts", "reason": "Why this file is likely impacted" }
+  ],
+
   "shouldGenerateDiagram": boolean,
   "diagramRationale": "Why this diagram helps (or null)",
   "diagramType": "sequence"|"flowchart"|"er"|"state"|"architecture"|null,
@@ -199,7 +216,7 @@ ${safe(params.config, params.qa.map((p, i) => `Q${i + 1}: ${p.question}\nA: ${p.
 - Diagrams: ${params.hasDeveloperDiagrams ? 'YES (skip diagram generation)' : 'NO'}
 - Tables: ${params.hasDeveloperTables ? 'YES (skip table generation)' : 'NO'}
 
-Analyze this change and decide the best documentation strategy.`
+Analyze this change, identify its intent, predict impact, and decide the documentation strategy.`
     }
   ];
 
@@ -222,18 +239,23 @@ Analyze this change and decide the best documentation strategy.`
   if (params.hasDeveloperTables) plan.shouldGenerateTable = false;
 
   // Sanity defaults
+  if (!plan.intent) plan.intent = 'unknown';
+  if (!plan.intentRationale) plan.intentRationale = '';
+  if (!Array.isArray(plan.impactedFiles)) plan.impactedFiles = [];
   if (!plan.complexity) plan.complexity = 'standard';
   if (plan.skipGeneration === undefined) plan.skipGeneration = false;
   if (plan.shouldGenerateDiagram === undefined) plan.shouldGenerateDiagram = false;
   if (plan.shouldGenerateTable === undefined) plan.shouldGenerateTable = false;
   if (!Array.isArray(plan.keyInsights)) plan.keyInsights = [];
-  if (plan.shouldGenerateTable === undefined) plan.shouldGenerateTable = false;
 
   return { plan, provider: (result.provider as ProviderId) ?? 'offline' };
 }
 
 function offlinePlan(hasDiagram: boolean, hasTable: boolean): DocumentPlan {
   return {
+    intent: 'unknown',
+    intentRationale: 'Analysis unavailable offline',
+    impactedFiles: [],
     shouldGenerateDiagram: false,
     diagramRationale: null,
     diagramType: null,
@@ -274,16 +296,18 @@ OUTPUT FORMAT:
 Create a document with these sections (skip any section where you'd have to invent content):
 
 ## 🧠 Brain Dump Summary
-2-3 sentences capturing the essence. If answers are vague, say so: "Developer's main focus was [X], though details were brief."
+2-3 sentences capturing the essence. 
+- Technical Intent: ${params.plan.intent.toUpperCase()} (${params.plan.intentRationale})
 
 ## 📁 What Changed
 Based on the DIFF, list the key technical changes (files, functions, configs). Be specific.
 
 ## 💡 Developer's Reasoning
 ONLY what the developer explicitly said. Format as bullet points quoting or closely paraphrasing their words.
-- If they said "melhorar X" → write "• Motivation: improve X (developer's words)"
-- If they mentioned alternatives → list them
-- If they mentioned risks → highlight them
+
+## 🔗 Deep Context (Predicted Impact)
+Based on technical analysis, these areas might be affected:
+${params.plan.impactedFiles.map(f => `- **${f.file}**: ${f.reason}`).join('\n') || 'No major downstream impacts predicted.'}
 
 ## ⚠️ Watch Out
 Gotchas, edge cases, or warnings the developer mentioned. If none mentioned, OMIT this section entirely.

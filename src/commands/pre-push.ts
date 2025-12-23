@@ -220,7 +220,25 @@ export async function prePushCommand(options: { skip?: boolean; offline?: boolea
     const hasDeveloperTables = parsedAll.some(p => p.tables.length > 0);
 
     const planResult = offline
-      ? { plan: { shouldGenerateDiagram: false, diagramRationale: null, diagramType: null, diagramFocus: null, shouldGenerateTable: false, tableRationale: null, tableType: null, sections: ['Summary', 'Notes'], complexity: 'minimal', skipGeneration: true, skipReason: 'Offline mode' }, provider: 'offline' as const }
+      ? { 
+          plan: { 
+            intent: 'unknown' as const,
+            intentRationale: 'Offline mode',
+            impactedFiles: [],
+            shouldGenerateDiagram: false, 
+            diagramRationale: null, 
+            diagramType: null, 
+            diagramFocus: null, 
+            shouldGenerateTable: false, 
+            tableRationale: null, 
+            tableType: null, 
+            sections: ['Summary', 'Notes'], 
+            complexity: 'minimal' as const, 
+            skipGeneration: true, 
+            skipReason: 'Offline mode' 
+          }, 
+          provider: 'offline' as const 
+        }
       : await planDocument({
           config,
           ctx: { branch, commits, files, diff },
@@ -233,7 +251,9 @@ export async function prePushCommand(options: { skip?: boolean; offline?: boolea
     if (options.verbose) {
       const p = planResult.plan;
       genSpinner.info(`AI Analysis (via ${planResult.provider}):`);
+      console.log(chalk.gray(`  • Intent: ${p.intent.toUpperCase()} (${p.intentRationale})`));
       console.log(chalk.gray(`  • Complexity: ${p.complexity}`));
+      console.log(chalk.gray(`  • Impact: ${p.impactedFiles.length} file(s) predicted`));
       console.log(chalk.gray(`  • Diagram: ${p.shouldGenerateDiagram ? `YES (${p.diagramType}) - ${p.diagramRationale}` : 'No'}`));
       console.log(chalk.gray(`  • Table: ${p.shouldGenerateTable ? `YES (${p.tableType}) - ${p.tableRationale}` : 'No'}`));
       if (p.keyInsights && p.keyInsights.length > 0) {

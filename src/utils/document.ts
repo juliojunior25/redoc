@@ -320,6 +320,13 @@ export class DocumentGenerator {
     lines.push('');
     lines.push(`> **Brain Dump** | Branch: \`${params.branch}\` | ${date} ${time} | ${params.commits.length} commit(s)`);
     lines.push('');
+
+    // Technical Intent
+    if (params.plan.intent && params.plan.intent !== 'unknown') {
+      const intentLabel = params.plan.intent.toUpperCase();
+      lines.push(`**Type:** \`${intentLabel}\` ${params.plan.intentRationale ? `— ${params.plan.intentRationale}` : ''}`);
+      lines.push('');
+    }
     
     // Commits summary
     if (params.commits.length > 0) {
@@ -375,6 +382,16 @@ export class DocumentGenerator {
     const main = String(params.mainContentMarkdown ?? '').trim();
     if (main) {
       lines.push(main);
+      lines.push('');
+    }
+
+    // Predicted Impact (Deep Context)
+    if (params.plan.impactedFiles && params.plan.impactedFiles.length > 0) {
+      lines.push('## 🔗 Deep Context (Predicted Impact)');
+      lines.push('');
+      params.plan.impactedFiles.forEach(f => {
+        lines.push(`- **${f.file}**: ${f.reason}`);
+      });
       lines.push('');
     }
 
@@ -439,7 +456,9 @@ export class DocumentGenerator {
     lines.push('<details>');
     lines.push('<summary>🤖 AI Decisions</summary>');
     lines.push('');
+    lines.push(`- **Technical Intent:** ${params.plan.intent} (${params.plan.intentRationale})`);
     lines.push(`- **Complexity:** ${params.plan.complexity}`);
+    lines.push(`- **Impact analysis:** ${params.plan.impactedFiles.length} file(s) identified`);
     lines.push(`- **Generated diagram:** ${params.plan.shouldGenerateDiagram ? `Yes (${params.plan.diagramType}) - ${params.plan.diagramRationale}` : 'No'}`);
     lines.push(`- **Generated table:** ${params.plan.shouldGenerateTable ? `Yes (${params.plan.tableType}) - ${params.plan.tableRationale}` : 'No'}`);
     if (params.plan.keyInsights && params.plan.keyInsights.length > 0) {

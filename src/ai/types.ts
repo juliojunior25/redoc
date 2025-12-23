@@ -2,6 +2,13 @@ import { RedocConfig } from '../types.js';
 
 export type ProviderId = 'groq' | 'gemini' | 'cerebras' | 'ollama' | 'offline';
 
+export type ChangeIntent = 'feat' | 'fix' | 'refactor' | 'chore' | 'docs' | 'perf' | 'test' | 'style' | 'unknown';
+
+export interface ImpactedFile {
+  file: string;
+  reason: string;
+}
+
 export interface ProviderAvailability {
   id: ProviderId;
   configured: boolean;
@@ -43,6 +50,11 @@ export interface ChangeContext {
 }
 
 export interface DocumentPlan {
+  intent: ChangeIntent;
+  intentRationale: string;
+
+  impactedFiles: ImpactedFile[];
+
   shouldGenerateDiagram: boolean;
   diagramRationale: string | null;
   diagramType: 'sequence' | 'flowchart' | 'er' | 'state' | 'architecture' | null;
