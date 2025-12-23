@@ -51,9 +51,17 @@ function hasInteractiveTTY(): boolean {
 /**
  * Pre-push hook - interactive brain dump session
  */
-export async function prePushCommand(options: { skip?: boolean; offline?: boolean; verbose?: boolean } = {}): Promise<void> {
-  // Early TTY check - exit silently if no interactive terminal
-  if (!hasInteractiveTTY()) {
+export async function prePushCommand(options: { 
+  skip?: boolean; 
+  offline?: boolean; 
+  verbose?: boolean;
+  exportQuestions?: string;
+  answers?: string;
+} = {}): Promise<void> {
+  const isAgentMode = Boolean(options.exportQuestions || options.answers);
+
+  // Early TTY check - exit silently if no interactive terminal (unless in agent mode)
+  if (!hasInteractiveTTY() && !isAgentMode) {
     // Log to file for debugging, but don't crash
     const logDir = path.join(process.env.HOME || '~', '.redoc');
     try {
@@ -134,12 +142,17 @@ export async function prePushCommand(options: { skip?: boolean; offline?: boolea
       console.log();
     }
 
-    const { shouldDocument } = await inquirer.prompt([{
-      type: 'confirm',
-      name: 'shouldDocument',
-      message: `Create brain dump for these ${versions.length} captured commit(s)?`,
-      default: true
-    }]);
+    let shouldDocument = true;
+    if (!isAgentMode) {
+      const result = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'shouldDocument',
+        message: `Create brain dump for these ${versions.length} captured commit(s)?`,
+        default: true
+      }]);
+      shouldDocument = result.shouldDocument;
+    }
+
     if (!shouldDocument) {
       console.log(chalk.yellow('Skipped.\n'));
       return;
@@ -168,47 +181,76 @@ export async function prePushCommand(options: { skip?: boolean; offline?: boolea
 
     const questions = questionResult.questions;
 
-    console.log(chalk.blue.bold(`\n🧠 Brain Dump Session (${questions.length} questions)\n`));
-    console.log(chalk.gray('Goal: Capture knowledge that would be LOST if you left tomorrow.'));
-    console.log(chalk.gray('Think: decisions, gotchas, context, lessons learned.'));
-    console.log(chalk.gray(''));
-    console.log(chalk.gray('Tips:'));
-    console.log(chalk.gray('  • Be honest about shortcuts, hacks, and tech debt'));
-    console.log(chalk.gray('  • Mention what you tried that DIDN\'T work'));
-    console.log(chalk.gray('  • Warn about fragile areas or edge cases'));
-    console.log(chalk.gray('  • Empty answer = skip the question'));
-    console.log();
+    // Agent Mode: Export questions and exit
+    if (options.exportQuestions) {
+      const exportPath = path.resolve(process.cwd(), options.exportQuestions);
+      await fs.writeFile(exportPath, JSON.stringify({ questions, branch, commits, files }, null, 2));
+      console.log(chalk.green(`\n✅ Questions exported to: ${exportPath}`));
+      console.log(chalk.gray('Agent should answer these and run with --answers <file>\n'));
+      return;
+    }
 
     const qa: QAPair[] = [];
 
-    for (let i = 0; i < questions.length; i++) {
-      const q = questions[i];
-      console.log(chalk.blue(`📝 ${i + 1}/${questions.length}: ${q}`));
-
-      let answerText = '';
-
-      try {
-        const { answer } = await inquirer.prompt([{
-          type: 'editor',
-          name: 'answer',
-          message: q,
-          default: '',
-          postprocess: (input: string) => normalizeText(input)
-        }]);
-        answerText = normalizeText(answer);
-      } catch {
-        const { answer } = await inquirer.prompt([{
-          type: 'input',
-          name: 'answer',
-          message: `${q} (single line):`
-        }]);
-        answerText = normalizeText(answer);
+    // Agent Mode: Load answers from file
+    if (options.answers) {
+      const importPath = path.resolve(process.cwd(), options.answers);
+      const answersContent = await fs.readFile(importPath, 'utf-8');
+      const answersData = JSON.parse(answersContent);
+      
+      // Map answers to questions
+      if (Array.isArray(answersData.answers)) {
+        qa.push(...answersData.answers);
+      } else if (typeof answersData.answers === 'object') {
+        // Handle key-value format if necessary, but QAPair[] is preferred
+        Object.entries(answersData.answers).forEach(([q, a]) => {
+          qa.push({ question: q, answer: String(a) });
+        });
       }
-
-      if (answerText.trim().length > 0) {
-        qa.push({ question: q, answer: answerText });
-      }
+      
+      console.log(chalk.green(`\n✅ Loaded ${qa.length} answers from: ${importPath}\n`));
+    } else {
+      // Interactive Mode: Ask questions
+      console.log(chalk.blue.bold(`\n🧠 Brain Dump Session (${questions.length} questions)\n`));
+      console.log(chalk.gray('Goal: Capture knowledge that would be LOST if you left tomorrow.'));
+      console.log(chalk.gray('Think: decisions, gotchas, context, lessons learned.'));
+      console.log(chalk.gray(''));
+      console.log(chalk.gray('Tips:'));
+      console.log(chalk.gray('  • Be honest about shortcuts, hacks, and tech debt'));
+      console.log(chalk.gray('  • Mention what you tried that DIDN\'T work'));
+      console.log(chalk.gray('  • Warn about fragile areas or edge cases'));
+      console.log(chalk.gray('  • Empty answer = skip the question'));
       console.log();
+
+      for (let i = 0; i < questions.length; i++) {
+        const q = questions[i];
+        console.log(chalk.blue(`📝 ${i + 1}/${questions.length}: ${q}`));
+
+        let answerText = '';
+
+        try {
+          const { answer } = await inquirer.prompt([{
+            type: 'editor',
+            name: 'answer',
+            message: q,
+            default: '',
+            postprocess: (input: string) => normalizeText(input)
+          }]);
+          answerText = normalizeText(answer);
+        } catch {
+          const { answer } = await inquirer.prompt([{
+            type: 'input',
+            name: 'answer',
+            message: `${q} (single line):`
+          }]);
+          answerText = normalizeText(answer);
+        }
+
+        if (answerText.trim().length > 0) {
+          qa.push({ question: q, answer: answerText });
+        }
+        console.log();
+      }
     }
 
     // Planner + generation (optional parallel)
@@ -320,6 +362,22 @@ export async function prePushCommand(options: { skip?: boolean; offline?: boolea
     genSpinner.succeed('Brain dump saved');
     console.log(chalk.green.bold('\n✅ Brain dump saved!\n'));
     console.log(chalk.gray(`→ ${filePath}\n`));
+
+    // Cleanup: Remove answers file if in Agent Mode (Business Rule)
+    if (options.answers) {
+      try {
+        const importPath = path.resolve(process.cwd(), options.answers);
+        await fs.unlink(importPath);
+        if (options.verbose) {
+          console.log(chalk.gray(`\nCleanup: Removed agent answers file: ${options.answers}`));
+        }
+      } catch (error) {
+        // Non-critical, just log if verbose
+        if (options.verbose) {
+          console.error(chalk.red('\nFailed to cleanup answers file:'), error);
+        }
+      }
+    }
 
     // Clear captured commits for this branch to avoid reusing them next time.
     try {

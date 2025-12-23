@@ -382,6 +382,7 @@ RULES:
 - Keep it simple: 5-8 elements max
 - Make it USEFUL - show relationships and flow that aren't obvious from reading code
 - Return ONLY a valid Mermaid code block
+- **CRITICAL SYNTAX RULE:** Arrows with labels MUST use the format: \`A -->|Label| B\`. NEVER use \`-->|Label|> B\` or other invalid combinations.
 
 Example format:
 \`\`\`mermaid
