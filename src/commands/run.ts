@@ -9,7 +9,7 @@ export async function runCommand(): Promise<void> {
   await prePushCommand();
 }
 
-export async function runCommandWithOptions(options: { skip?: boolean; offline?: boolean; verbose?: boolean } = {}): Promise<void> {
+export async function runCommandWithOptions(options: { skip?: boolean; offline?: boolean; verbose?: boolean; exportQuestions?: string; answers?: string } = {}): Promise<void> {
   console.log(chalk.gray('Running ReDoc manually (equivalent to pre-push)...'));
   await prePushCommand(options);
 }

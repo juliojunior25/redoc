@@ -50,6 +50,8 @@ program
   .option('--skip', 'Skip this run (no questions)')
   .option('--offline', 'Use default questions, no AI')
   .option('--verbose', 'Show extra debug output')
+  .option('--export-questions <file>', 'Export questions to JSON file (Headless/Agent mode)')
+  .option('--answers <file>', 'Read answers from JSON file (Headless/Agent mode)')
   .action(async (options) => {
     try {
       await runCommandWithOptions(options);
