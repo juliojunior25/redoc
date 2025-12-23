@@ -363,7 +363,7 @@ export async function prePushCommand(options: {
     console.log(chalk.green.bold('\n✅ Brain dump saved!\n'));
     console.log(chalk.gray(`→ ${filePath}\n`));
 
-    // Cleanup: Remove answers file if in Agent Mode (Business Rule)
+    // Cleanup: Remove answers and questions files if in Agent Mode (Business Rule)
     if (options.answers) {
       try {
         const importPath = path.resolve(process.cwd(), options.answers);
@@ -371,10 +371,24 @@ export async function prePushCommand(options: {
         if (options.verbose) {
           console.log(chalk.gray(`\nCleanup: Removed agent answers file: ${options.answers}`));
         }
+
+        // Also cleanup common question file names if they exist
+        const commonQuestions = ['q.json', 'questions.json'];
+        for (const qFile of commonQuestions) {
+          try {
+            const qPath = path.resolve(process.cwd(), qFile);
+            await fs.unlink(qPath);
+            if (options.verbose) {
+              console.log(chalk.gray(`Cleanup: Removed agent questions file: ${qFile}`));
+            }
+          } catch {
+            // Ignore if file doesn't exist
+          }
+        }
       } catch (error) {
         // Non-critical, just log if verbose
         if (options.verbose) {
-          console.error(chalk.red('\nFailed to cleanup answers file:'), error);
+          console.error(chalk.red('\nFailed to cleanup agent files:'), error);
         }
       }
     }
